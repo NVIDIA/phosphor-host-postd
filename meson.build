@@ -29,6 +29,14 @@ if get_option('snoop-device') != ''
 endif
 conf_data.set('SNOOPD_ARGS', snoopd_args)
 
+if  get_option('pcc').enabled()
+  add_project_arguments([
+       '-DREAD_FROM_PCC',
+       ],
+      language : 'cpp')
+endif
+
+
 configure_file(
   input: 'lpcsnoop.service.in',
   output: 'lpcsnoop.service',

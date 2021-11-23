@@ -20,3 +20,7 @@ option(
 option(
     'tests', type: 'feature', description: 'Build tests.',
 )
+option(
+    'pcc', type: 'feature', description: 'Read post code through PCC.'
+)
+

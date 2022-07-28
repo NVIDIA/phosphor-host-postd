@@ -5,6 +5,7 @@ sdbusplus = dependency('sdbusplus')
 
 tests = [
   'post_reporter_test',
+  'sbmr_boot_progress_test',  
 ]
 
 foreach t : tests

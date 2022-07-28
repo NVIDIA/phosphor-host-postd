@@ -19,10 +19,13 @@ phosphor_dbus_interfaces = dependency('phosphor-dbus-interfaces')
 sdbusplus = dependency('sdbusplus')
 sdeventplus = dependency('sdeventplus')
 systemd = dependency('systemd')
+phosphor_logging = dependency('phosphor-logging')
 
 conf_data = configuration_data()
 conf_data.set('bindir', get_option('prefix') / get_option('bindir'))
 conf_data.set('SYSTEMD_TARGET', get_option('systemd-target'))
+
+if  get_option('snoop-feature').enabled()
 
 snoopd_args = '-b ' + get_option('post-code-bytes').to_string()
 if get_option('snoop-device') != ''
@@ -66,6 +69,12 @@ executable(
   ],
   install: true,
 )
+install_headers(
+  'lpcsnoop/snoop.hpp',
+  'lpcsnoop/snoop_listen.hpp',
+  subdir: 'lpcsnoop')
+
+endif
 
 if get_option('7seg').enabled()
   udevdir = dependency('udev', required : false).get_pkgconfig_variable('udevdir')
@@ -91,11 +100,10 @@ if get_option('7seg').enabled()
   )
 endif
 
-install_headers(
-  'lpcsnoop/snoop.hpp',
-  'lpcsnoop/snoop_listen.hpp',
-  subdir: 'lpcsnoop')
-
 if not build_tests.disabled()
   subdir('test')
+endif
+
+if  get_option('sbmr-boot-progress').enabled()
+  subdir('sbmrbootprogress')    
 endif

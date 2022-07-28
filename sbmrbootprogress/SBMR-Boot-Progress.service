@@ -1,0 +1,10 @@
+[Unit]
+Description=SBMR Boot Progress manager
+After=xyz.openbmc_project.State.Host.service
+
+[Service]
+ExecStart=/usr/bin/sbmr-boot-progress-manager
+SyslogIdentifier=sbmr-boot-progress-manager
+
+[Install]
+WantedBy=multi-user.target

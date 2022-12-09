@@ -12,6 +12,13 @@ constexpr auto sbmrBootProgressSize = 9;
 constexpr auto bootProgressCode = 0x01;
 constexpr auto bootErrorCode = 0x02;
 constexpr auto bootDebugCode = 0x03;
+constexpr auto severityByte = 8;
+constexpr auto errorMinor = 0x40;
+constexpr auto errorMajor = 0x80;
+constexpr auto errorUnrecoverd = 0x90;
+constexpr auto errorUncontained = 0xA0;
+constexpr auto socketMask = 0xC0;
+constexpr auto instanceMask = 0x3F;
 
 constexpr auto sbmrBootProgressService = "xyz.openbmc_project.State.Boot.Raw";
 constexpr auto sbmrBootProgressObj = "/xyz/openbmc_project/state/boot/raw0";
@@ -21,6 +28,7 @@ constexpr auto bootProgressInf = "xyz.openbmc_project.State.Boot.Progress";
 constexpr auto loggingService = "xyz.openbmc_project.Logging";
 constexpr auto loggingObject = "/xyz/openbmc_project/logging";
 constexpr auto loggingInterface = "xyz.openbmc_project.Logging.Create";
+constexpr auto warnSeverity = "xyz.openbmc_project.Logging.Entry.Level.Warning";
 constexpr auto errorSeverity = "xyz.openbmc_project.Logging.Entry.Level.Error";
 constexpr auto postCodeService = "xyz.openbmc_project.State.Boot.PostCode0";
 constexpr auto postCodeObject = "/xyz/openbmc_project/State/Boot/PostCode0";
@@ -181,7 +189,8 @@ void SbmrBootProgress::updateBootProgressProperties(
         hexCode << std::setw(2) << std::setfill('0')
                 << static_cast<int>(bootProgressRecord[iterator]);
     }
-    auto bootProgressJsonKey = hexCode.str();
+    // Filter Severity to the bootProgressJsonKey
+    auto bootProgressJsonKey = hexCode.str().replace(severityByte,2,"00");
 
     // add instance to the hexCode
     hexCode << std::setw(2) << std::setfill('0')
@@ -212,11 +221,22 @@ void SbmrBootProgress::updateBootProgressProperties(
                 try
                 {
                     std::map<std::string, std::string> additionData = {};
+                    std::stringstream logMessage;
+                    auto socket = (bootProgressRecord[8] & socketMask) >> 6;
+                    auto instance = bootProgressRecord[8] & instanceMask;
+                    logMessage << message << ", Socket 0x" << std::hex << socket << ", Instance 0x"<< std::hex << instance;
                     auto method =
                         conn->new_method_call(loggingService, loggingObject,
                                               loggingInterface, "Create");
-                    method.append(message);
-                    method.append(errorSeverity);
+                    method.append(logMessage.str());
+                    if (bootProgressRecord[3] == errorMinor)
+                    {
+                        method.append(warnSeverity);
+                     }
+                    else
+                    {
+                        method.append(errorSeverity);
+                    }
                     method.append(additionData);
                     auto reply = conn->call(method);
                 }

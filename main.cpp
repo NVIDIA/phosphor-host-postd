@@ -36,6 +36,8 @@ static size_t codeSize = 1; /* Size of each POST code in bytes */
 #ifdef READ_FROM_PCC
 static uint64_t prevPostCode{0};
 #endif
+#define POST_CODE_MAX 256
+uint8_t postCodeBuffer[POST_CODE_MAX];
 
 static void usage(const char* name)
 {
@@ -57,19 +59,35 @@ void PostCodeEventHandler(sdeventplus::source::IO& s, int postFd, uint32_t,
 {
     uint64_t code = 0;
     ssize_t readb;
-    while ((readb = read(postFd, &code, codeSize)) > 0)
+    secondary_post_code_t secondary_code;
+
+    while ((readb = read(postFd, postCodeBuffer, codeSize)) > 0)
     {
-        code = le64toh(code);
-        if (verbose)
+        if (codeSize <= sizeof(code))
         {
-            fprintf(stderr, "Code: 0x%" PRIx64 "\n", code);
+            memcpy(&code, postCodeBuffer, codeSize);
+            code = le64toh(code);
+            if (verbose)
+            {
+                fprintf(stderr, "Code: 0x%" PRIx64 "\n", code);
+            }
+        }
+        else
+        {
+            code = 0;
+            for (size_t i = 0; i < codeSize; i++)
+            {
+                secondary_code.push_back(postCodeBuffer[i]);
+                if (verbose)
+                    fprintf(stderr, "Secondary Code[%lu]: 0x%x\n",i, postCodeBuffer[i]);
+            }
         }
         // HACK: Always send property changed signal even for the same code
         // since we are single threaded, external users will never see the
         // first value.
-        reporter->value(std::make_tuple(~code, secondary_post_code_t{}), true);
-        reporter->value(std::make_tuple(code, secondary_post_code_t{}));
-
+        reporter->value(std::make_tuple(~code, secondary_code), true);
+        reporter->value(std::make_tuple(code, secondary_code));
+        secondary_code.clear();
         // read depends on old data being cleared since it doens't always read
         // the full code size
         code = 0;
@@ -255,11 +273,11 @@ int main(int argc, char* argv[])
             case 'b':
                 codeSize = atoi(optarg);
 
-                if (codeSize < 1 || codeSize > 8)
+                if (codeSize < 1 || codeSize > 256)
                 {
                     fprintf(stderr,
                             "Invalid POST code size '%s'. Must be "
-                            "an integer from 1 to 8.\n",
+                            "an integer from 1 to 256.\n",
                             optarg);
                     exit(EXIT_FAILURE);
                 }

@@ -25,8 +25,6 @@ conf_data = configuration_data()
 conf_data.set('bindir', get_option('prefix') / get_option('bindir'))
 conf_data.set('SYSTEMD_TARGET', get_option('systemd-target'))
 
-if  get_option('snoop-feature').enabled()
-
 snoopd_args = '-b ' + get_option('post-code-bytes').to_string()
 if get_option('snoop-device') != ''
   snoopd_args += ' -d /dev/' + get_option('snoop-device')
@@ -40,6 +38,12 @@ if  get_option('pcc').enabled()
       language : 'cpp')
 endif
 
+if  get_option('sbmr-boot-progress').enabled()
+add_project_arguments([
+       '-DREPORT_SBMR',
+       ],
+      language : 'cpp')
+endif
 
 configure_file(
   input: 'lpcsnoop.service.in',
@@ -74,8 +78,6 @@ install_headers(
   'lpcsnoop/snoop_listen.hpp',
   subdir: 'lpcsnoop')
 
-endif
-
 if get_option('7seg').enabled()
   udevdir = dependency('udev', required : false).get_pkgconfig_variable('udevdir')
   assert(udevdir != '', 'Cannot find udevdir')
@@ -102,8 +104,4 @@ endif
 
 if not build_tests.disabled()
   subdir('test')
-endif
-
-if  get_option('sbmr-boot-progress').enabled()
-  subdir('sbmrbootprogress')    
 endif

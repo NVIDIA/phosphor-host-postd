@@ -29,8 +29,3 @@ option(
     'sbmr-boot-progress', type: 'feature', description: 'Read boot progress code through SSIF.',
      value : 'disabled',
 )
-option(
-    'snoop-feature', type: 'feature', description: 'Read post code using snoop.',
-     value : 'enabled',
-)
-

@@ -32,6 +32,10 @@
 #include <sdeventplus/source/io.hpp>
 #include <thread>
 
+#ifdef REPORT_SBMR
+#include "sbmrbootprogress/sbmr_boot_progress.hpp"
+#endif // ifdef REPORT_SBMR
+
 static size_t codeSize = 1; /* Size of each POST code in bytes */
 #ifdef READ_FROM_PCC
 static uint64_t prevPostCode{0};
@@ -54,8 +58,13 @@ static void usage(const char* name)
  * Callback handling IO event from the POST code fd. i.e. there is new
  * POST code available to read.
  */
+#ifdef REPORT_SBMR
+void PostCodeEventHandler(sdeventplus::source::IO& s, int postFd, uint32_t,
+                          PostReporter* reporter, bool verbose, SbmrBootProgress &sbmr)
+#else
 void PostCodeEventHandler(sdeventplus::source::IO& s, int postFd, uint32_t,
                           PostReporter* reporter, bool verbose)
+#endif // ifdef REPORT_SBMR
 {
     uint64_t code = 0;
     ssize_t readb;
@@ -87,6 +96,10 @@ void PostCodeEventHandler(sdeventplus::source::IO& s, int postFd, uint32_t,
         // first value.
         reporter->value(std::make_tuple(~code, secondary_code), true);
         reporter->value(std::make_tuple(code, secondary_code));
+        postcode_t post_code{code, secondary_code};
+#ifdef REPORT_SBMR
+        sbmr.updateBootProgressProperties(post_code, 0);
+#endif // ifdef REPORT_SBMR
         secondary_code.clear();
         // read depends on old data being cleared since it doens't always read
         // the full code size
@@ -323,15 +336,26 @@ int main(int argc, char* argv[])
                           std::placeholders::_2, std::placeholders::_3,
                           &reporter, verbose));
             #else
+            #ifdef REPORT_SBMR
+            SbmrBootProgress sbmrBootProgress;
+
+            reporterSource = std::make_unique<sdeventplus::source::IO>(
+                event, postFd, EPOLLIN | EPOLLET,
+                std::bind(PostCodeEventHandler, std::placeholders::_1,
+                          std::placeholders::_2, std::placeholders::_3,
+                          &reporter, verbose, sbmrBootProgress));
+            #else
             reporterSource = std::make_unique<sdeventplus::source::IO>(
                 event, postFd, EPOLLIN | EPOLLET,
                 std::bind(PostCodeEventHandler, std::placeholders::_1,
                           std::placeholders::_2, std::placeholders::_3,
                           &reporter, verbose));
+            #endif // ifdef REPORT_SBMR
             #endif
         }
         // Enable bus to handle incoming IO and bus events
         bus.attach_event(event.get(), SD_EVENT_PRIORITY_NORMAL);
+
         rc = event.loop();
     }
     catch (const std::exception& e)

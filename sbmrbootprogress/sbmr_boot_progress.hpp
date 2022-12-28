@@ -59,79 +59,28 @@ using SecondaryCode_t = std::vector<uint8_t>;
 using BootProgress_t = std::tuple<PrimaryCode_t, SecondaryCode_t>;
 using Json = nlohmann::json;
 using RawInterface = sdbusplus::xyz::openbmc_project::State::Boot::server::Raw;
-Json errorLog;
 
-struct SbmrBootProgress : sdbusplus::server::object_t<RawInterface>
+struct SbmrBootProgress
 {
-    SbmrBootProgress(sdbusplus::bus::bus& bus, const char* path) :
-        sdbusplus::server::object_t<RawInterface>(bus, path)
+    SbmrBootProgress()
     {
-        // Updating Boot progress Dbus Properties on reboot
-        updateBootProgress();
+        // parse JSON file when Service started
+        errorLog = parseJSONConfig(progressCodeJson);
     }
+
     ~SbmrBootProgress()
     {
     }
-    virtual std::tuple<uint64_t, std::vector<uint8_t>>
-        value(std::tuple<uint64_t, std::vector<uint8_t>> value) override;
-    virtual std::tuple<uint64_t, std::vector<uint8_t>> value();
     Json parseJSONConfig(const std::string& configFile);
-
-  private:
-    void updateBootProgress();
     void updateBootProgressProperties(BootProgress_t sbmrBootProgressCode,
                                       uint64_t tsUS);
+  private:
     void updateBootProgressOem(const std::string& oemLastState);
     void updateBootProgressLastUpdate(uint64_t tsUS);
     void updatePropertyBootProgress(const std::string& sbmrBootProgressStage);
+    Json errorLog;
 };
-void SbmrBootProgress::updateBootProgress()
-{
 
-    uint16_t mostRecentBootCodeIndex = 1;
-    // parse JSON file when Service starts
-    errorLog = parseJSONConfig(progressCodeJson);
-    try
-    {
-        auto method = conn->new_method_call(postCodeService, postCodeObject,
-                                            postCodeInterface,
-                                            "GetPostCodesWithTimeStamp");
-        method.append(mostRecentBootCodeIndex);
-        auto reply = conn->call(method);
-        if (reply.is_method_error())
-        {
-            phosphor::logging::log<phosphor::logging::level::ERR>(
-                "updateBootProgress:Failed to call method "
-                "GetPostCodesWithTimestamp",
-                phosphor::logging::entry("SERVICE=%s", postCodeService));
-            return;
-        }
-        std::map<uint64_t, BootProgress_t> postCode;
-        reply.read(postCode);
-        // skip the empty postcode boots
-        if (postCode.empty())
-        {
-            return;
-        }
-        // Get the last item from the map
-        auto lastRecord = postCode.rbegin();
-        // Getting the timestamp
-        auto tsUS = lastRecord->first;
-        // Getting the  Record
-        auto lastElement = lastRecord->second;
-
-        updateBootProgressProperties(lastElement, tsUS);
-        // Update the Boot.Raw.Value when BMC reboots
-        RawInterface::value(lastElement, true);
-    }
-    catch (const std::exception& e)
-    {
-        phosphor::logging::log<phosphor::logging::level::ERR>(
-            "updateBootProgress:Failed to get GetPostCodesWithTimestamp",
-            phosphor::logging::entry("ERROR=%s", e.what()));
-    }
-    return;
-}
 Json SbmrBootProgress::parseJSONConfig(const std::string& configFile)
 {
     std::ifstream jsonFile(configFile);
@@ -149,17 +98,6 @@ Json SbmrBootProgress::parseJSONConfig(const std::string& configFile)
     return data;
 }
 
-std::tuple<uint64_t, std::vector<uint8_t>>
-    SbmrBootProgress::value(std::tuple<uint64_t, std::vector<uint8_t>> value)
-{
-    updateBootProgressProperties(value, 0);
-    return RawInterface::value(value, false);
-}
-std::tuple<uint64_t, std::vector<uint8_t>> SbmrBootProgress::value()
-{
-    return std::get<std::tuple<uint64_t, std::vector<uint8_t>>>(
-        RawInterface::getPropertyByName(valueProperty));
-}
 void SbmrBootProgress::updateBootProgressProperties(
     BootProgress_t sbmrBootProgressCode, uint64_t tsUS)
 {

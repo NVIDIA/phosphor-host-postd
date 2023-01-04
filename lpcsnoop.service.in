@@ -1,6 +1,6 @@
 [Unit]
 Description=LPC Snoop Daemon
-After=systemd-modules-load.service
+After=@SYSTEMD_AFTER_SERVICE@
 
 [Service]
 Restart=always

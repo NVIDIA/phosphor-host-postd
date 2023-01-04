@@ -24,6 +24,7 @@ phosphor_logging = dependency('phosphor-logging')
 conf_data = configuration_data()
 conf_data.set('bindir', get_option('prefix') / get_option('bindir'))
 conf_data.set('SYSTEMD_TARGET', get_option('systemd-target'))
+conf_data.set('SYSTEMD_AFTER_SERVICE', get_option('systemd-after-service'))
 
 snoopd_args = '-b ' + get_option('post-code-bytes').to_string()
 if get_option('snoop-device') != ''

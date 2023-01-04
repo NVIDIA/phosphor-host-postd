@@ -16,6 +16,11 @@ option(
     value: 'multi-user.target',
 )
 option(
+    'systemd-after-service',
+    description: 'Service after which lpc will start',
+    type: 'string'
+)
+option(
     '7seg', type: 'feature', description: 'Enable building 7seg POST daemon.',
 )
 option(

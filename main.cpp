@@ -84,11 +84,11 @@ void PostCodeEventHandler(sdeventplus::source::IO& s, int postFd, uint32_t,
         else
         {
             code = 0;
-            for (size_t i = 0; i < codeSize; i++)
+            for (uint16_t i = 0; i < codeSize; i++)
             {
                 secondary_code.push_back(postCodeBuffer[i]);
                 if (verbose)
-                    fprintf(stderr, "Secondary Code[%lu]: 0x%x\n",i, postCodeBuffer[i]);
+                    fprintf(stderr, "Secondary Code[%u]: 0x%x\n",i, postCodeBuffer[i]);
             }
         }
         // HACK: Always send property changed signal even for the same code

@@ -44,6 +44,7 @@ add_project_arguments([
        '-DREPORT_SBMR',
        ],
       language : 'cpp')
+install_data('sbmrbootprogress/sbmr_boot_progress_code.json', install_dir : get_option('datadir') / 'sbmrbootprogress')
 endif
 
 configure_file(

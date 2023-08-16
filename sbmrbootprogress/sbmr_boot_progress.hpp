@@ -40,7 +40,7 @@ static const std::map<std::string, std::string> sbmrBootProgressStages{
     {"0x010000000110010200", "PCIInit"},
     {"0x010000000110040300", "SystemInitComplete"},
     {"0x010000000700050300", "SystemSetup"},
-    {"0x010000000008050300", "OSStart"},
+    {"0x010000000180050300", "OSStart"},
     {"0x010000001910100300", "OSRunning"}};
 
 constexpr auto oemSbmrBootStage = "OEM";

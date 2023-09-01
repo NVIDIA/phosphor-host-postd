@@ -13,12 +13,17 @@ constexpr auto bootProgressCode = 0x01;
 constexpr auto bootErrorCode = 0x02;
 constexpr auto bootDebugCode = 0x03;
 constexpr auto severityByte = 8;
+constexpr auto operationByte = 10;
 constexpr auto errorMinor = 0x40;
 constexpr auto errorMajor = 0x80;
 constexpr auto errorUnrecoverd = 0x90;
 constexpr auto errorUncontained = 0xA0;
 constexpr auto socketMask = 0xC0;
 constexpr auto instanceMask = 0x3F;
+
+constexpr auto subClassNvFwBoot = 0x01;
+constexpr auto classNvFw = 0xc1;
+constexpr auto nvFwBootJsonKey = 0xff0f;
 
 constexpr auto sbmrBootProgressService = "xyz.openbmc_project.State.Boot.Raw";
 constexpr auto sbmrBootProgressObj = "/xyz/openbmc_project/state/boot/raw0";
@@ -153,6 +158,18 @@ void SbmrBootProgress::updateBootProgressProperties(
     {
         if (bootProgressRecord[0] == bootErrorCode)
         {
+            // Handle the specific case of EFI_NV_FW_BOOT_EC_LAST_BOOT_ERROR
+            // Their operation code is **8*, **9*, **A*
+            // * means that it could be 0~F
+            if ((bootProgressRecord[6] == subClassNvFwBoot) && (bootProgressRecord[7] == classNvFw)) {
+                if (bootProgressRecord[5]) {
+                    hexCode.str("");
+                    hexCode.clear();
+                    hexCode << std::setw(4) << (nvFwBootJsonKey | bootProgressRecord[5]);
+                    bootProgressJsonKey = bootProgressJsonKey.replace(operationByte, 4,
+                        hexCode.str());
+                }
+            }
             auto message = errorLog.value(bootProgressJsonKey, "");
             if (!message.empty())
             {

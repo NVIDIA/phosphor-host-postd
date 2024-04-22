@@ -17,8 +17,8 @@
 #include "lpcsnoop/snoop.hpp"
 
 #include <sdbusplus/bus.hpp>
+#include <sdbusplus/bus/match.hpp>
 #include <sdbusplus/message.hpp>
-#include <sdbusplus/server.hpp>
 
 namespace lpcsnoop
 {
@@ -30,30 +30,28 @@ static const std::string GetMatchRule()
     using namespace sdbusplus::bus::match::rules;
 
     return type::signal() + interface("org.freedesktop.DBus.Properties") +
-           member("PropertiesChanged") + path(SNOOP_OBJECTPATH);
+           member("PropertiesChanged") + path(snoopObject);
 }
 
 class SnoopListen
 {
-    using message_handler_t = std::function<void(sdbusplus::message::message&)>;
-    using postcode_handler_t = std::function<void(postcode_t)>;
+    using message_handler_t = std::function<void(sdbusplus::message_t&)>;
+    using postcode_handler_t = std::function<void(FILE*, postcode_t)>;
 
   public:
-    SnoopListen(sdbusplus::bus::bus& busIn, sd_bus_message_handler_t handler) :
-        bus(busIn), signal(busIn, GetMatchRule().c_str(), handler, this)
-    {
-    }
+    SnoopListen(sdbusplus::bus_t& busIn, sd_bus_message_handler_t handler) :
+        signal(busIn, GetMatchRule().c_str(), handler, this)
+    {}
 
-    SnoopListen(sdbusplus::bus::bus& busIn, message_handler_t handler) :
-        bus(busIn), signal(busIn, GetMatchRule(), handler)
-    {
-    }
+    SnoopListen(sdbusplus::bus_t& busIn, message_handler_t handler) :
+        signal(busIn, GetMatchRule(), handler)
+    {}
 
-    SnoopListen(sdbusplus::bus::bus& busIn, postcode_handler_t handler) :
-        SnoopListen(busIn, std::bind(defaultMessageHandler, handler,
+    SnoopListen(sdbusplus::bus_t& busIn, postcode_handler_t handler,
+                FILE* f = NULL) :
+        SnoopListen(busIn, std::bind(defaultMessageHandler, handler, f,
                                      std::placeholders::_1))
-    {
-    }
+    {}
 
     SnoopListen() = delete; // no default constructor
     ~SnoopListen() = default;
@@ -63,15 +61,14 @@ class SnoopListen
     SnoopListen& operator=(SnoopListen&&) = default;
 
   private:
-    sdbusplus::bus::bus& bus;
-    sdbusplus::server::match::match signal;
+    sdbusplus::bus::match_t signal;
 
     /*
      * Default message handler which listens to published messages on snoop
      * DBus path, and calls the given postcode_handler on each value received.
      */
-    static void defaultMessageHandler(postcode_handler_t& handler,
-                                      sdbusplus::message::message& m)
+    static void defaultMessageHandler(postcode_handler_t& handler, FILE* f,
+                                      sdbusplus::message_t& m)
     {
         std::string messageBusName;
         std::map<std::string, std::variant<postcode_t>> messageData;
@@ -79,10 +76,10 @@ class SnoopListen
 
         m.read(messageBusName, messageData);
 
-        if (messageBusName == SNOOP_BUSNAME &&
+        if (messageBusName == snoopDbus &&
             messageData.find(propertyKey) != messageData.end())
         {
-            handler(get<postcode_t>(messageData[propertyKey]));
+            handler(f, get<postcode_t>(messageData[propertyKey]));
         }
     }
 };

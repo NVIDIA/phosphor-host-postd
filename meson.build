@@ -4,11 +4,11 @@ project(
   default_options: [
     'warning_level=3',
     'werror=true',
-    'cpp_std=c++20'
+    'cpp_std=c++23'
   ],
   license: 'Apache-2.0',
   version: '1.0',
-  meson_version: '>=0.57.0',
+  meson_version: '>=1.1.1',
 )
 
 build_tests = get_option('tests')
@@ -20,16 +20,28 @@ sdbusplus = dependency('sdbusplus')
 sdeventplus = dependency('sdeventplus')
 systemd = dependency('systemd')
 phosphor_logging = dependency('phosphor-logging')
+libgpiodcxx = dependency('libgpiodcxx')
 
 conf_data = configuration_data()
 conf_data.set('bindir', get_option('prefix') / get_option('bindir'))
 conf_data.set('SYSTEMD_TARGET', get_option('systemd-target'))
 conf_data.set('SYSTEMD_AFTER_SERVICE', get_option('systemd-after-service'))
 
-snoopd_args = '-b ' + get_option('post-code-bytes').to_string()
-if get_option('snoop-device') != ''
+snoopd_src = ['main.cpp']
+snoopd_args = ''
+if get_option('snoop').allowed()
+  snoopd_src += 'ipmisnoop/ipmisnoop.cpp'
+  add_project_arguments('-DENABLE_IPMI_SNOOP',language:'cpp')
+  snoopd_args += ' -h "' + get_option('host-instances') + '"'
+elif get_option('snoop-device') != ''
+  snoopd_args += '-b ' + get_option('post-code-bytes').to_string()
   snoopd_args += ' -d /dev/' + get_option('snoop-device')
+  rate_limit = get_option('rate-limit')
+  if rate_limit > 0
+    snoopd_args += ' --rate-limit=' + rate_limit.to_string()
 endif
+endif
+
 conf_data.set('SNOOPD_ARGS', snoopd_args)
 
 if  get_option('pcc').enabled()
@@ -52,15 +64,16 @@ configure_file(
   output: 'lpcsnoop.service',
   configuration: conf_data,
   install: true,
-  install_dir: systemd.get_pkgconfig_variable('systemdsystemunitdir'))
+  install_dir: systemd.get_variable('systemdsystemunitdir'))
 
 executable(
   'snoopd',
-  'main.cpp',
+  snoopd_src,
   dependencies: [
     sdbusplus,
     sdeventplus,
     phosphor_dbus_interfaces,
+    libgpiodcxx,
   ],
   install: true,
 )
@@ -80,14 +93,14 @@ install_headers(
   'lpcsnoop/snoop_listen.hpp',
   subdir: 'lpcsnoop')
 
-if get_option('7seg').enabled()
-  udevdir = dependency('udev', required : false).get_pkgconfig_variable('udevdir')
+if not get_option('7seg').disabled()
+  udevdir = dependency('udev', required : false).get_variable('udevdir')
   assert(udevdir != '', 'Cannot find udevdir')
   install_data(['80-7seg.rules'], install_dir : udevdir)
 
   install_data(
     ['postcode-7seg@.service'],
-    install_dir: systemd.get_pkgconfig_variable('systemdsystemunitdir')
+    install_dir: systemd.get_variable('systemdsystemunitdir')
   )
 
   executable(
@@ -96,9 +109,6 @@ if get_option('7seg').enabled()
     dependencies: [
       sdbusplus,
       phosphor_dbus_interfaces,
-    ],
-    link_args : [
-      '-lstdc++fs',
     ],
     install: true,
   )

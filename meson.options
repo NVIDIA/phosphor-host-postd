@@ -10,15 +10,21 @@ option(
     value: 1,
 )
 option(
+    'host-instances',
+    description: 'obmc instances of the host',
+    type: 'string',
+)
+option(
+    'snoop',
+    type: 'feature',
+    description: 'Compile time flag to enable Ipmi snoop.',
+    value: 'disabled',
+)
+option(
     'systemd-target',
     description: 'Target for starting this service.',
     type: 'string',
     value: 'multi-user.target',
-)
-option(
-    'systemd-after-service',
-    description: 'Service after which lpc will start',
-    type: 'string'
 )
 option(
     '7seg', type: 'feature', description: 'Enable building 7seg POST daemon.',
@@ -27,10 +33,23 @@ option(
     'tests', type: 'feature', description: 'Build tests.',
 )
 option(
-    'pcc', type: 'feature', description: 'Read post code through PCC.',
-     value : 'enabled',
+    'rate-limit',
+    description: 'Maximum number of POST codes to read from snoop device every'
+    + 'second. Value of 0 disables rate limiting.',
+    type: 'integer',
+    min: 0,
+    value: 1000
 )
 option(
     'sbmr-boot-progress', type: 'feature', description: 'Read boot progress code through SSIF.',
      value : 'disabled',
+)
+option(
+    'systemd-after-service',
+    description: 'Service after which lpc will start',
+    type: 'string'
+)
+option(
+    'pcc', type: 'feature', description: 'Read post code through PCC.',
+     value : 'enabled',
 )

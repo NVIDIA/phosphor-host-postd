@@ -44,7 +44,7 @@
 
 #ifdef REPORT_SBMR
 #include "sbmrbootprogress/sbmr_boot_progress.hpp"
-#endif // ifdef REPORT_SBMR
+#endif                      // ifdef REPORT_SBMR
 
 static size_t codeSize = 1; /* Size of each POST code in bytes */
 #ifdef READ_FROM_PCC
@@ -240,7 +240,8 @@ void PostCodeEventHandler(PostReporter* reporter, bool verbose,
             {
                 secondary_code.push_back(postCodeBuffer[i]);
                 if (verbose)
-                    fprintf(stderr, "Secondary Code[%u]: 0x%x\n",i, postCodeBuffer[i]);
+                    fprintf(stderr, "Secondary Code[%u]: 0x%x\n", i,
+                            postCodeBuffer[i]);
             }
         }
         // HACK: Always send property changed signal even for the same code

@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
- * SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2024 NVIDIA CORPORATION &
+ * AFFILIATES. All rights reserved. SPDX-License-Identifier: Apache-2.0
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,11 +18,12 @@
 
 #include "nlohmann/json.hpp"
 
-#include <chrono>
-#include <fstream>
 #include <phosphor-logging/elog-errors.hpp>
 #include <sdbusplus/asio/object_server.hpp>
 #include <xyz/openbmc_project/State/Boot/Raw/server.hpp>
+
+#include <chrono>
+#include <fstream>
 
 constexpr auto sbmrBootProgressSize = 9;
 constexpr auto bootProgressCode = 0x01;
@@ -73,8 +74,7 @@ constexpr auto progressCodeJson =
 boost::asio::io_context io;
 auto conn = std::make_shared<sdbusplus::asio::connection>(io);
 
-constexpr auto dbusOrgPropertyInterface =
-    "org.freedesktop.DBus.Properties";
+constexpr auto dbusOrgPropertyInterface = "org.freedesktop.DBus.Properties";
 using PrimaryCode_t = uint64_t;
 using SecondaryCode_t = std::vector<uint8_t>;
 using BootProgress_t = std::tuple<PrimaryCode_t, SecondaryCode_t>;
@@ -89,12 +89,11 @@ struct SbmrBootProgress
         errorLog = parseJSONConfig(progressCodeJson);
     }
 
-    ~SbmrBootProgress()
-    {
-    }
+    ~SbmrBootProgress() {}
     Json parseJSONConfig(const std::string& configFile);
     void updateBootProgressProperties(BootProgress_t sbmrBootProgressCode,
                                       uint64_t tsUS);
+
   private:
     void updateBootProgressOem(const std::string& oemLastState);
     void updateBootProgressLastUpdate(uint64_t tsUS);
@@ -122,7 +121,6 @@ Json SbmrBootProgress::parseJSONConfig(const std::string& configFile)
 void SbmrBootProgress::updateBootProgressProperties(
     BootProgress_t sbmrBootProgressCode, uint64_t tsUS)
 {
-
     auto logEvent = 0;
     auto bootProgressRecord =
         std::get<std::vector<uint8_t>>(sbmrBootProgressCode);
@@ -149,7 +147,7 @@ void SbmrBootProgress::updateBootProgressProperties(
                 << static_cast<int>(bootProgressRecord[iterator]);
     }
     // Filter Severity to the bootProgressJsonKey
-    auto bootProgressJsonKey = hexCode.str().replace(severityByte,2,"00");
+    auto bootProgressJsonKey = hexCode.str().replace(severityByte, 2, "00");
 
     // add instance to the hexCode
     hexCode << std::setw(2) << std::setfill('0')
@@ -177,13 +175,17 @@ void SbmrBootProgress::updateBootProgressProperties(
             // Handle the specific case of EFI_NV_FW_BOOT_EC_LAST_BOOT_ERROR
             // Their operation code is **8*, **9*, **A*
             // * means that it could be 0~F
-            if ((bootProgressRecord[6] == subClassNvFwBoot) && (bootProgressRecord[7] == classNvFw)) {
-                if (bootProgressRecord[5]) {
+            if ((bootProgressRecord[6] == subClassNvFwBoot) &&
+                (bootProgressRecord[7] == classNvFw))
+            {
+                if (bootProgressRecord[5])
+                {
                     hexCode.str("");
                     hexCode.clear();
-                    hexCode << std::setw(4) << (nvFwBootJsonKey | bootProgressRecord[5]);
-                    bootProgressJsonKey = bootProgressJsonKey.replace(operationByte, 4,
-                        hexCode.str());
+                    hexCode << std::setw(4)
+                            << (nvFwBootJsonKey | bootProgressRecord[5]);
+                    bootProgressJsonKey = bootProgressJsonKey.replace(
+                        operationByte, 4, hexCode.str());
                 }
             }
             auto message = errorLog.value(bootProgressJsonKey, "");
@@ -195,7 +197,8 @@ void SbmrBootProgress::updateBootProgressProperties(
                     std::stringstream logMessage;
                     auto socket = (bootProgressRecord[8] & socketMask) >> 6;
                     auto instance = bootProgressRecord[8] & instanceMask;
-                    logMessage << message << ", Socket 0x" << std::hex << socket << ", Instance 0x"<< std::hex << instance;
+                    logMessage << message << ", Socket 0x" << std::hex << socket
+                               << ", Instance 0x" << std::hex << instance;
                     auto method =
                         conn->new_method_call(loggingService, loggingObject,
                                               loggingInterface, "Create");
@@ -203,7 +206,7 @@ void SbmrBootProgress::updateBootProgressProperties(
                     if (bootProgressRecord[3] == errorMinor)
                     {
                         method.append(warnSeverity);
-                     }
+                    }
                     else
                     {
                         method.append(errorSeverity);
@@ -227,7 +230,8 @@ void SbmrBootProgress::updateBootProgressOem(const std::string& oemLastState)
     try
     {
         std::variant<std::string> variantStringValue(oemLastState);
-        auto method = conn->new_method_call(bootProgressService, bootProgressObject,
+        auto method = conn->new_method_call(bootProgressService,
+                                            bootProgressObject,
                                             dbusOrgPropertyInterface, "Set");
         method.append(bootProgressInf, "BootProgressOem", variantStringValue);
         auto reply = conn->call(method);
@@ -247,7 +251,8 @@ void SbmrBootProgress::updatePropertyBootProgress(
             "xyz.openbmc_project.State.Boot.Progress.ProgressStages." +
             sbmrBootProgressStage;
         std::variant<std::string> variantValue(enumValue);
-        auto method = conn->new_method_call(bootProgressService, bootProgressObject,
+        auto method = conn->new_method_call(bootProgressService,
+                                            bootProgressObject,
                                             dbusOrgPropertyInterface, "Set");
 
         method.append(bootProgressInf, "BootProgress", variantValue);
@@ -265,9 +270,11 @@ void SbmrBootProgress::updateBootProgressLastUpdate(uint64_t tsUS)
     try
     {
         std::variant<uint64_t> variantTimeValue(tsUS);
-        auto method = conn->new_method_call(bootProgressService, bootProgressObject,
+        auto method = conn->new_method_call(bootProgressService,
+                                            bootProgressObject,
                                             dbusOrgPropertyInterface, "Set");
-        method.append(bootProgressInf, "BootProgressLastUpdate", variantTimeValue);
+        method.append(bootProgressInf, "BootProgressLastUpdate",
+                      variantTimeValue);
         auto reply = conn->call(method);
     }
     catch (const std::exception& e)

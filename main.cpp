@@ -254,7 +254,7 @@ void PostCodeEventHandler(PostReporter* reporter, bool verbose,
         sbmr.updateBootProgressProperties(post_code, 0);
 #endif // ifdef REPORT_SBMR
         secondary_code.clear();
-        // read depends on old data being cleared since it doens't always read
+        // read depends on old data being cleared since it doesn't always read
         // the full code size
         code = 0;
 

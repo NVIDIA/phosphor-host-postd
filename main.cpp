@@ -53,7 +53,7 @@ static uint64_t prevPostCode{0};
 #define POST_CODE_MAX 256
 uint8_t postCodeBuffer[POST_CODE_MAX];
 static bool verbose = false;
-static std::function<bool(uint64_t&, ssize_t)> procPostCode;
+static std::function<bool(std::vector<uint8_t>&, ssize_t)> procPostCode;
 
 static void usage(const char* name)
 {
@@ -143,7 +143,7 @@ bool rateLimit(PostReporter& reporter, sdeventplus::source::IO& ioSource)
  * aspeedPCCBuffer contains enough PCC codes, the postcode will be assigned as
  * 0xDDCCBBAA.
  */
-bool aspeedPCC(uint64_t& code, ssize_t readb)
+bool aspeedPCC(std::vector<uint8_t>& code, ssize_t readb)
 {
     // Size of data coming from the PCC hardware
     constexpr size_t pccSize = sizeof(uint16_t);
@@ -157,7 +157,7 @@ bool aspeedPCC(uint64_t& code, ssize_t readb)
     constexpr uint16_t pccPostCodeMask = 0x00FF;
     constexpr uint8_t byteShift = 8;
 
-    uint16_t* codePtr = reinterpret_cast<uint16_t*>(&code);
+    uint16_t* codePtr = reinterpret_cast<uint16_t*>(code.data());
 
     for (size_t i = 0; i < (readb / pccSize); i++)
     {
@@ -189,11 +189,10 @@ bool aspeedPCC(uint64_t& code, ssize_t readb)
     }
 
     // Remove the prefix bytes and combine the partial postcodes together.
-    code = 0;
-    for (size_t i = 0; i < fullPostPCCCount; i++)
+    code.clear();
+    for (size_t i = fullPostPCCCount; i > 0; --i)
     {
-        code |= static_cast<uint64_t>(aspeedPCCBuffer[i] & pccPostCodeMask)
-                << (byteShift * i);
+        code.push_back(aspeedPCCBuffer[i - 1] & pccPostCodeMask);
     }
     aspeedPCCBuffer.erase(aspeedPCCBuffer.begin(),
                           aspeedPCCBuffer.begin() + fullPostPCCCount);
@@ -214,7 +213,7 @@ void PostCodeEventHandler(PostReporter* reporter, bool verbose,
                           sdeventplus::source::IO& s, int postFd, uint32_t)
 #endif // ifdef REPORT_SBMR
 {
-    uint64_t code = 0;
+    std::vector<uint8_t> code(codeSize, 0);
     ssize_t readb;
     secondary_post_code_t secondary_code;
 
@@ -257,7 +256,8 @@ void PostCodeEventHandler(PostReporter* reporter, bool verbose,
         secondary_code.clear();
         // read depends on old data being cleared since it doesn't always read
         // the full code size
-        code = 0;
+        code.resize(codeSize);
+        std::fill(code.begin(), code.end(), 0);
 
         if (rateLimit(*reporter, s))
         {

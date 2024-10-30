@@ -41,6 +41,12 @@ constexpr auto instanceMask = 0x3F;
 constexpr auto subClassNvFwBoot = 0x01;
 constexpr auto classNvFw = 0xc1;
 constexpr auto nvFwBootJsonKey = 0xff0f;
+constexpr auto opByte1BinLoadFailed = 0x01;
+constexpr auto opByte2BinLoadFailed = 0x00;
+constexpr auto opByte1ConfigReset = 0x08;
+constexpr auto opByte2BootSerice = 0x10;
+constexpr auto subClassSpecific = 0x10;
+constexpr auto classSoftware = 0x03;
 
 constexpr auto sbmrBootProgressService = "xyz.openbmc_project.State.Boot.Raw";
 constexpr auto sbmrBootProgressObj = "/xyz/openbmc_project/state/boot/raw0";
@@ -99,6 +105,7 @@ struct SbmrBootProgress
     void updateBootProgressLastUpdate(uint64_t tsUS);
     void updatePropertyBootProgress(const std::string& sbmrBootProgressStage);
     Json errorLog;
+    bool ResetToDefault = false;
 };
 
 Json SbmrBootProgress::parseJSONConfig(const std::string& configFile)
@@ -170,14 +177,26 @@ void SbmrBootProgress::updateBootProgressProperties(
     // Don't log event when BMC rebooted/Service start
     if (!errorLog.is_discarded() && logEvent)
     {
+        if (bootProgressRecord[0] == bootProgressCode)
+        {
+            // Check the ResetToDefault progress code
+            if ((bootProgressRecord[4] == opByte1ConfigReset) &&
+                (bootProgressRecord[5] == opByte2BootSerice) &&
+                (bootProgressRecord[6] == subClassSpecific) &&
+                (bootProgressRecord[7] == classSoftware))
+            {
+                ResetToDefault = true;
+            }
+        }
         if (bootProgressRecord[0] == bootErrorCode)
         {
-            // Handle the specific case of EFI_NV_FW_BOOT_EC_LAST_BOOT_ERROR
-            // Their operation code is **8*, **9*, **A*
-            // * means that it could be 0~F
+            // Handle the specific cases
             if ((bootProgressRecord[6] == subClassNvFwBoot) &&
                 (bootProgressRecord[7] == classNvFw))
             {
+                // EFI_NV_FW_BOOT_EC_LAST_BOOT_ERROR
+                // Their operation code is **8*, **9*, **A*
+                // * means that it could be 0~F
                 if (bootProgressRecord[5])
                 {
                     hexCode.str("");
@@ -186,6 +205,20 @@ void SbmrBootProgress::updateBootProgressProperties(
                             << (nvFwBootJsonKey | bootProgressRecord[5]);
                     bootProgressJsonKey = bootProgressJsonKey.replace(
                         operationByte, 4, hexCode.str());
+                }
+                // EFI_NV_FW_BOOT_EC_BINARY_LOAD_FAILED
+                else if ((bootProgressRecord[4] == opByte1BinLoadFailed) &&
+                         (bootProgressRecord[5] == opByte2BinLoadFailed))
+                {
+                    // If ResetToDefualt flag is true
+                    // skip reporting this boot error
+                    // it is expected if the MB1 cannot
+                    // find the varstore at that time.
+                    if (ResetToDefault)
+                    {
+                        ResetToDefault = false;
+                        return;
+                    }
                 }
             }
             auto message = errorLog.value(bootProgressJsonKey, "");

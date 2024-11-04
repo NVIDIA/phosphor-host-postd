@@ -263,9 +263,9 @@ void SbmrBootProgress::updateBootProgressOem(const std::string& oemLastState)
     try
     {
         std::variant<std::string> variantStringValue(oemLastState);
-        auto method = conn->new_method_call(bootProgressService,
-                                            bootProgressObject,
-                                            dbusOrgPropertyInterface, "Set");
+        auto method =
+            conn->new_method_call(bootProgressService, bootProgressObject,
+                                  dbusOrgPropertyInterface, "Set");
         method.append(bootProgressInf, "BootProgressOem", variantStringValue);
         auto reply = conn->call(method);
     }
@@ -284,9 +284,9 @@ void SbmrBootProgress::updatePropertyBootProgress(
             "xyz.openbmc_project.State.Boot.Progress.ProgressStages." +
             sbmrBootProgressStage;
         std::variant<std::string> variantValue(enumValue);
-        auto method = conn->new_method_call(bootProgressService,
-                                            bootProgressObject,
-                                            dbusOrgPropertyInterface, "Set");
+        auto method =
+            conn->new_method_call(bootProgressService, bootProgressObject,
+                                  dbusOrgPropertyInterface, "Set");
 
         method.append(bootProgressInf, "BootProgress", variantValue);
         auto reply = conn->call(method);
@@ -303,9 +303,9 @@ void SbmrBootProgress::updateBootProgressLastUpdate(uint64_t tsUS)
     try
     {
         std::variant<uint64_t> variantTimeValue(tsUS);
-        auto method = conn->new_method_call(bootProgressService,
-                                            bootProgressObject,
-                                            dbusOrgPropertyInterface, "Set");
+        auto method =
+            conn->new_method_call(bootProgressService, bootProgressObject,
+                                  dbusOrgPropertyInterface, "Set");
         method.append(bootProgressInf, "BootProgressLastUpdate",
                       variantTimeValue);
         auto reply = conn->call(method);

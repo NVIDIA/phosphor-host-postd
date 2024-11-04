@@ -553,10 +553,10 @@ int main(int argc, char* argv[])
 #else
 #ifdef REPORT_SBMR
             SbmrBootProgress sbmrBootProgress;
-            reporterSource.emplace(event, postFd, EPOLLIN,
-                                   std::bind_front(PostCodeEventHandler,
-                                                   &reporter, verbose,
-                                                   sbmrBootProgress));
+            reporterSource.emplace(
+                event, postFd, EPOLLIN,
+                std::bind_front(PostCodeEventHandler, &reporter, verbose,
+                                sbmrBootProgress));
 #else
             reporterSource.emplace(
                 event, postFd, EPOLLIN,

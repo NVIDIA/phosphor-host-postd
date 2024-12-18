@@ -219,35 +219,37 @@ void PostCodeEventHandler(PostReporter* reporter, bool verbose,
 
     while ((readb = read(postFd, postCodeBuffer, codeSize)) > 0)
     {
-        // if (procPostCode && procPostCode(code, readb) == false)
-        // {
-        //     return;
-        // }
-
         if (codeSize <= sizeof(code))
         {
-            memcpy(&code, postCodeBuffer, codeSize);
-            code = le64toh(code);
+            code.assign(postCodeBuffer, postCodeBuffer + codeSize);
             if (verbose)
             {
-                fprintf(stderr, "Code: 0x%" PRIx64 "\n", code);
+                for (const auto& byte : code)
+                {
+                    fprintf(stderr, "%02x", byte);
+                }
+                fprintf(stderr, "\n");
             }
         }
         else
         {
-            code = 0;
+            code = {0};
             for (uint16_t i = 0; i < codeSize; i++)
             {
                 secondary_code.push_back(postCodeBuffer[i]);
                 if (verbose)
+                {
                     fprintf(stderr, "Secondary Code[%u]: 0x%x\n", i,
                             postCodeBuffer[i]);
+                }
             }
         }
         // HACK: Always send property changed signal even for the same code
         // since we are single threaded, external users will never see the
         // first value.
-        reporter->value(std::make_tuple(~code, secondary_code), true);
+        code[0] = ~code[0];
+        reporter->value(std::make_tuple(code, secondary_code), true);
+        code[0] = ~code[0];
         reporter->value(std::make_tuple(code, secondary_code));
         postcode_t post_code{code, secondary_code};
 #ifdef REPORT_SBMR
@@ -331,11 +333,12 @@ void PostCodePCCEventHandler(PostReporter* reporter, bool verbose,
                 memcpy(ptrToNewCode + 1, (p + 1), 1);
                 fprintf(stderr, "Changed Code 1: 0x%" PRIx64 "\n",
                         extractedPostCode);
-                reporter->value(std::make_tuple(~extractedPostCode,
-                                                secondary_post_code_t{}),
+                std::vector<uint8_t> primaryCode = {
+                    static_cast<uint8_t>(extractedPostCode)};
+                std::vector<uint8_t> secondaryCode = {};
+                reporter->value(std::make_tuple(primaryCode, secondaryCode),
                                 true);
-                reporter->value(std::make_tuple(extractedPostCode,
-                                                secondary_post_code_t{}));
+                reporter->value(std::make_tuple(primaryCode, secondaryCode));
                 extractedPostCode = 0;
             }
         }
@@ -358,11 +361,13 @@ void PostCodePCCEventHandler(PostReporter* reporter, bool verbose,
                     memcpy(ptrToNewCode + 1, (p + index), 1);
                     fprintf(stderr, "Changed Code 2: 0x%" PRIx64 "\n",
                             extractedPostCode);
-                    reporter->value(std::make_tuple(~extractedPostCode,
-                                                    secondary_post_code_t{}),
+                    std::vector<uint8_t> primaryCode = {
+                        static_cast<uint8_t>(extractedPostCode)};
+                    std::vector<uint8_t> secondaryCode = {};
+                    reporter->value(std::make_tuple(primaryCode, secondaryCode),
                                     true);
-                    reporter->value(std::make_tuple(extractedPostCode,
-                                                    secondary_post_code_t{}));
+                    reporter->value(
+                        std::make_tuple(primaryCode, secondaryCode));
 
                     extractedPostCode = 0;
                 }

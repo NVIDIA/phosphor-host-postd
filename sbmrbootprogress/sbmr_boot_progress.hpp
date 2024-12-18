@@ -81,7 +81,7 @@ boost::asio::io_context io;
 auto conn = std::make_shared<sdbusplus::asio::connection>(io);
 
 constexpr auto dbusOrgPropertyInterface = "org.freedesktop.DBus.Properties";
-using PrimaryCode_t = uint64_t;
+using PrimaryCode_t = std::vector<uint8_t>;
 using SecondaryCode_t = std::vector<uint8_t>;
 using BootProgress_t = std::tuple<PrimaryCode_t, SecondaryCode_t>;
 using Json = nlohmann::json;
@@ -129,8 +129,7 @@ void SbmrBootProgress::updateBootProgressProperties(
     BootProgress_t sbmrBootProgressCode, uint64_t tsUS)
 {
     auto logEvent = 0;
-    auto bootProgressRecord =
-        std::get<std::vector<uint8_t>>(sbmrBootProgressCode);
+    auto bootProgressRecord = std::get<1>(sbmrBootProgressCode);
 
     if (bootProgressRecord.empty() ||
         bootProgressRecord.size() != sbmrBootProgressSize)

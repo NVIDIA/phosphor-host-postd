@@ -47,6 +47,8 @@ constexpr auto opByte1ConfigReset = 0x08;
 constexpr auto opByte2BootSerice = 0x10;
 constexpr auto subClassSpecific = 0x10;
 constexpr auto classSoftware = 0x03;
+constexpr auto opByte1PcValidBootChnCmplt = 0x0a;
+constexpr auto opByte2PcValidBootChnCmplt = 0x00;
 
 constexpr auto sbmrBootProgressService = "xyz.openbmc_project.State.Boot.Raw";
 constexpr auto sbmrBootProgressObj = "/xyz/openbmc_project/state/boot/raw0";
@@ -178,13 +180,26 @@ void SbmrBootProgress::updateBootProgressProperties(
     {
         if (bootProgressRecord[0] == bootProgressCode)
         {
-            // Check the ResetToDefault progress code
+            // Check the ResetToDefault progress code:
+            // EFI_SW_DXE_BS_PC_CONFIG_RESET
             if ((bootProgressRecord[4] == opByte1ConfigReset) &&
                 (bootProgressRecord[5] == opByte2BootSerice) &&
                 (bootProgressRecord[6] == subClassSpecific) &&
                 (bootProgressRecord[7] == classSoftware))
             {
                 ResetToDefault = true;
+            }
+            // Clear ResetToDefault flag
+            // after the code: EFI_NV_FW_BOOT_PC_VALIDATE_BOOTCHAIN_COMPLETE
+            else if ((bootProgressRecord[4] == opByte1PcValidBootChnCmplt) &&
+                     (bootProgressRecord[5] == opByte2PcValidBootChnCmplt) &&
+                     (bootProgressRecord[6] == subClassNvFwBoot) &&
+                     (bootProgressRecord[7] == classNvFw))
+            {
+                if (ResetToDefault)
+                {
+                    ResetToDefault = false;
+                }
             }
         }
         if (bootProgressRecord[0] == bootErrorCode)
@@ -215,7 +230,6 @@ void SbmrBootProgress::updateBootProgressProperties(
                     // find the varstore at that time.
                     if (ResetToDefault)
                     {
-                        ResetToDefault = false;
                         return;
                     }
                 }

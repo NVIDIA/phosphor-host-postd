@@ -17,13 +17,14 @@ sdeventplus = dependency('sdeventplus')
 systemd = dependency('systemd')
 phosphor_logging = dependency('phosphor-logging')
 libgpiodcxx = dependency('libgpiodcxx')
+libusb = dependency('libusb-1.0')
 
 conf_data = configuration_data()
 conf_data.set('bindir', get_option('prefix') / get_option('bindir'))
 conf_data.set('SYSTEMD_TARGET', get_option('systemd-target'))
 conf_data.set('SYSTEMD_AFTER_SERVICE', get_option('systemd-after-service'))
 
-snoopd_src = ['main.cpp']
+snoopd_src = []
 snoopd_args = ''
 if get_option('snoop').allowed()
     snoopd_src += 'ipmisnoop/ipmisnoop.cpp'
@@ -36,6 +37,38 @@ elif get_option('snoop-device') != ''
     if rate_limit > 0
         snoopd_args += ' --rate-limit=' + rate_limit.to_string()
     endif
+elif get_option('queued-boot-progress').allowed()
+    snoopd_src += 'queued-boot-progress/PollingDevice.cpp'
+    snoopd_src += 'queued-boot-progress/I2CPollingDevice.cpp'
+    snoopd_src += 'queued-boot-progress/USBPollingDevice.cpp'
+    snoopd_src += 'queued-boot-progress/BootProgressPublisher.cpp'
+    snoopd_src += 'queued-boot-progress/BootProgressPoller.cpp'
+    snoopd_src += 'queued-boot-progress/BootProgressMain.cpp'
+    snoopd_src += 'queued-boot-progress/BootProgressManager.cpp'
+    snoopd_src += 'queued-boot-progress/BootProgressApplication.cpp'
+
+    transport = get_option('transport-interface')
+    snoopd_args += '-i ' + transport
+    if transport == 'i2c'
+        buses = get_option('device-bus')
+        addrs = get_option('device-address')
+        if buses.length() != addrs.length()
+            error('device-bus and device-address counts must match')
+        endif
+        foreach idx : range(buses.length())
+            snoopd_args += ' -b ' + buses[idx]
+            snoopd_args += ' -a ' + addrs[idx]
+        endforeach
+    endif
+    poll_interval = get_option('poll-interval')
+    if poll_interval > 0
+        snoopd_args += ' -p ' + poll_interval.to_string()
+    endif
+endif
+
+if snoopd_src.length() == 0
+    snoopd_src += 'main.cpp'
+    message('No specific boot progress feature enabled, adding default main.cpp')
 endif
 
 conf_data.set('SNOOPD_ARGS', snoopd_args)
@@ -60,17 +93,20 @@ configure_file(
     install_dir: systemd.get_variable('systemdsystemunitdir'),
 )
 
-executable(
-    'snoopd',
-    snoopd_src,
-    dependencies: [
-        sdbusplus,
-        sdeventplus,
-        phosphor_dbus_interfaces,
-        libgpiodcxx,
-    ],
-    install: true,
-)
+deps = [
+    sdbusplus,
+    sdeventplus,
+    phosphor_dbus_interfaces,
+    libgpiodcxx,
+    phosphor_logging,
+]
+
+
+if get_option('queued-boot-progress').allowed()
+    deps += libusb
+endif
+
+executable('snoopd', snoopd_src, dependencies: deps, install: true)
 
 executable(
     'snooper',

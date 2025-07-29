@@ -26,30 +26,30 @@ option(
     type: 'string',
     value: 'multi-user.target',
 )
-option(
-    '7seg', type: 'feature', description: 'Enable building 7seg POST daemon.',
-)
-option(
-    'tests', type: 'feature', description: 'Build tests.',
-)
+option('7seg', type: 'feature', description: 'Enable building 7seg POST daemon.')
+option('tests', type: 'feature', description: 'Build tests.')
 option(
     'rate-limit',
     description: 'Maximum number of POST codes to read from snoop device every'
     + 'second. Value of 0 disables rate limiting.',
     type: 'integer',
     min: 0,
-    value: 1000
+    value: 1000,
 )
 option(
-    'sbmr-boot-progress', type: 'feature', description: 'Read boot progress code through SSIF.',
-     value : 'disabled',
+    'sbmr-boot-progress',
+    type: 'feature',
+    description: 'Read boot progress code through SSIF.',
+    value: 'disabled',
 )
 option(
     'systemd-after-service',
     description: 'Service after which lpc will start',
-    type: 'string'
+    type: 'string',
 )
 option(
-    'pcc', type: 'feature', description: 'Read post code through PCC.',
-     value : 'enabled',
+    'pcc',
+    type: 'feature',
+    description: 'Read post code through PCC.',
+    value: 'enabled',
 )

@@ -215,47 +215,35 @@ void PostCodeEventHandler(PostReporter* reporter, bool verbose,
 {
     std::vector<uint8_t> code(codeSize, 0);
     ssize_t readb;
-    secondary_post_code_t secondary_code;
 
-    while ((readb = read(postFd, postCodeBuffer, codeSize)) > 0)
+    while ((readb = read(postFd, code.data(), codeSize)) > 0)
     {
-        if (codeSize <= sizeof(code))
+        if (procPostCode && procPostCode(code, readb) == false)
         {
-            code.assign(postCodeBuffer, postCodeBuffer + codeSize);
-            if (verbose)
-            {
-                for (const auto& byte : code)
-                {
-                    fprintf(stderr, "%02x", byte);
-                }
-                fprintf(stderr, "\n");
-            }
+            return;
         }
-        else
+
+        if (verbose)
         {
-            code = {0};
-            for (uint16_t i = 0; i < codeSize; i++)
+            fprintf(stderr, "Code: 0x");
+            for (const auto& byte : code)
             {
-                secondary_code.push_back(postCodeBuffer[i]);
-                if (verbose)
-                {
-                    fprintf(stderr, "Secondary Code[%u]: 0x%x\n", i,
-                            postCodeBuffer[i]);
-                }
+                fprintf(stderr, "%02x", byte);
             }
+            fprintf(stderr, "\n");
         }
         // HACK: Always send property changed signal even for the same code
         // since we are single threaded, external users will never see the
         // first value.
         code[0] = ~code[0];
-        reporter->value(std::make_tuple(code, secondary_code), true);
+        reporter->value(std::make_tuple(code, secondary_post_code_t{}), true);
         code[0] = ~code[0];
-        reporter->value(std::make_tuple(code, secondary_code));
-        postcode_t post_code{code, secondary_code};
+        reporter->value(std::make_tuple(code, secondary_post_code_t{}));
 #ifdef REPORT_SBMR
-        sbmr.updateBootProgressProperties(post_code, 0);
+        sbmr.updateBootProgressProperties(
+            std::make_tuple(code, secondary_post_code_t{}), 0);
 #endif // ifdef REPORT_SBMR
-        secondary_code.clear();
+
         // read depends on old data being cleared since it doesn't always read
         // the full code size
         code.resize(codeSize);
@@ -425,14 +413,14 @@ int main(int argc, char* argv[])
     // clang-format off
     static const struct option long_options[] = {
 #ifdef ENABLE_IPMI_SNOOP
-        {"host", optional_argument, NULL, 'h'},
+        {"host", optional_argument, nullptr, 'h'},
 #else
-        {"device", optional_argument, NULL, 'd'},
-        {"rate-limit", optional_argument, NULL, 'r'},
-        {"bytes",  required_argument, NULL, 'b'},
+        {"device", optional_argument, nullptr, 'd'},
+        {"rate-limit", optional_argument, nullptr, 'r'},
+        {"bytes",  required_argument, nullptr, 'b'},
 #endif
-        {"verbose", no_argument, NULL, 'v'},
-        {0, 0, 0, 0}
+        {"verbose", no_argument, nullptr, 'v'},
+        {nullptr, 0, nullptr, 0}
     };
     // clang-format on
 
@@ -444,7 +432,8 @@ int main(int argc, char* argv[])
 #endif
         "v";
 
-    while ((opt = getopt_long(argc, argv, optstring, long_options, NULL)) != -1)
+    while ((opt = getopt_long(argc, argv, optstring, long_options, nullptr)) !=
+           -1)
     {
         switch (opt)
         {

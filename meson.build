@@ -78,13 +78,8 @@ executable(
     dependencies: [sdbusplus, sdeventplus, phosphor_dbus_interfaces],
     install: true,
 )
-install_headers(
-    'lpcsnoop/snoop.hpp',
-    'lpcsnoop/snoop_listen.hpp',
-    subdir: 'lpcsnoop',
-)
 
-if not get_option('7seg').disabled()
+if get_option('7seg').allowed()
     udevdir = dependency('udev', required: false).get_variable('udevdir')
     assert(udevdir != '', 'Cannot find udevdir')
     install_data(['80-7seg.rules'], install_dir: udevdir)
@@ -102,6 +97,12 @@ if not get_option('7seg').disabled()
     )
 endif
 
-if not build_tests.disabled()
+install_headers(
+    'lpcsnoop/snoop.hpp',
+    'lpcsnoop/snoop_listen.hpp',
+    subdir: 'lpcsnoop',
+)
+
+if build_tests.allowed()
     subdir('test')
 endif

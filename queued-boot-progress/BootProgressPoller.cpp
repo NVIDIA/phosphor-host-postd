@@ -26,7 +26,7 @@ BootProgressPoller::BootProgressPoller(
     std::chrono::milliseconds pollInterval, int socketId,
     onBootProgressDataCallback onBootProgressDataCb) :
     ctx(ctx), device(std::move(device)), pollInterval(pollInterval),
-    socketId(socketId), processBootProgressData(processBootProgressData)
+    socketId(socketId), processBootProgressData(onBootProgressDataCb)
 {
     initIndices();
     pollStatus = true;

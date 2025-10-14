@@ -53,3 +53,35 @@ option(
     description: 'Read post code through PCC.',
     value: 'enabled',
 )
+option(
+    'queued-boot-progress',
+    type: 'feature',
+    value: 'disabled',
+    description: 'Feature to read boot progress in a polling manner',
+)
+option(
+    'poll-interval',
+    type: 'integer',
+    min: 1,
+    value: 2,
+    description: 'Polling interval for reading boot progress from devices',
+)
+option(
+    'transport-interface',
+    type: 'combo',
+    choices: ['i2c', 'usb'],
+    value: 'i2c',
+    description: 'Transport interface to get Boot Progress (valid: i2c, usb).',
+)
+option(
+    'device-bus',
+    type: 'array',
+    value: [],
+    description: 'Path to the device bus (default: /dev/i2c-0)',
+)
+option(
+    'device-address',
+    type: 'array',
+    value: [],
+    description: 'Address where the device is located',
+)

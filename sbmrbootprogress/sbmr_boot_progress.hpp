@@ -131,7 +131,7 @@ void SbmrBootProgress::updateBootProgressProperties(
     BootProgress_t sbmrBootProgressCode, uint64_t tsUS)
 {
     auto logEvent = 0;
-    auto bootProgressRecord = std::get<1>(sbmrBootProgressCode);
+    auto bootProgressRecord = std::get<0>(sbmrBootProgressCode);
 
     if (bootProgressRecord.empty() ||
         bootProgressRecord.size() != sbmrBootProgressSize)

@@ -155,7 +155,7 @@ sdbusplus::async::task<
         }
         std::string tsResultStr = std::format("0x{:08X}", tsResult.value());
         std::string codeResultStr = std::format("0x{:08X}", codeResult.value());
-        lg2::info(
+        lg2::debug(
             "Read timestamp {TS_RESULT} and code {CODE_RESULT} on socket {SOCKET_ID}, queue {QUEUE_NUMBER}",
             "TS_RESULT", tsResultStr, "CODE_RESULT", codeResultStr, "SOCKET_ID",
             socketId, "QUEUE_NUMBER", queueNumber);

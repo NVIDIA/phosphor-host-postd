@@ -37,6 +37,10 @@ constexpr std::string_view hostPowerStateRunning =
     "xyz.openbmc_project.State.Host.HostState.Running";
 constexpr std::string_view hostPowerStateOff =
     "xyz.openbmc_project.State.Host.HostState.Off";
+constexpr std::string_view hostPowerStateQuiesced =
+    "xyz.openbmc_project.State.Host.HostState.Quiesced";
+constexpr std::string_view hostPowerStateTransition =
+    "xyz.openbmc_project.State.Host.HostState.TransitioningToOff";
 
 class Application
 {

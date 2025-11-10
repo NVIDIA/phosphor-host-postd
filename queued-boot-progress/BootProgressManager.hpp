@@ -57,6 +57,8 @@ class BootProgressManager
 
     void updatePollInterval(std::chrono::milliseconds newPollInterval);
 
+    void updatePollStatus(bool enablePolling);
+
     void initIndices();
 
   private:

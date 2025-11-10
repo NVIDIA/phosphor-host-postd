@@ -93,6 +93,8 @@ sdbusplus::async::task<void> Application::getInitialHostPowerState()
     {
         lg2::error("Error getting initial host power state: {ERROR}", "ERROR",
                    e.what());
+        currentHostPowerState = std::string(hostPowerStateRunning);
+        lg2::warning("Defaulting to RUNNING state due to error");
     }
 }
 
@@ -135,6 +137,20 @@ void Application::onOSStateChange()
 
 void Application::updatePollInterval()
 {
+    bool isHostOff = (currentHostPowerState == hostPowerStateOff ||
+                      currentHostPowerState == hostPowerStateQuiesced ||
+                      currentHostPowerState == hostPowerStateTransition ||
+                      currentHostPowerState.empty());
+
+    if (isHostOff)
+    {
+        lg2::info("Host is off - disabling boot progress polling");
+        bootProgressManager->updatePollStatus(false);
+        return;
+    }
+    // Re-enable polling when host is on
+    bootProgressManager->updatePollStatus(true);
+
     if (currentOSState == osStateBootComplete &&
         currentHostPowerState == hostPowerStateRunning)
     {
@@ -152,6 +168,12 @@ void Application::onHostPowerStateChange()
         // If host is off, reset indices to 0
         bootProgressManager->initIndices();
     }
+    else if (currentHostPowerState == hostPowerStateRunning)
+    {
+        lg2::info("Host powered on - enabling boot progress polling");
+        bootProgressManager->updatePollStatus(true);
+    }
+
     updatePollInterval();
 }
 

@@ -115,6 +115,14 @@ void BootProgressManager::updatePollInterval(
     }
 }
 
+void BootProgressManager::updatePollStatus(bool enable)
+{
+    for (const auto& [socketId, socketData] : socketDataMap)
+    {
+        socketData.poller->updatePollStatus(enable);
+    }
+}
+
 void BootProgressManager::initIndices()
 {
     for (const auto& [socketId, socketData] : socketDataMap)

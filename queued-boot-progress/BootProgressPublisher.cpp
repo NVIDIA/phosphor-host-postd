@@ -76,6 +76,22 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
 {
     try
     {
+        if (progressCodeData.empty())
+        {
+            co_return;
+        }
+
+        auto now = std::chrono::steady_clock::now();
+        auto timeSinceLastUpdate =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - lastDbusUpdateTime);
+
+        lg2::debug(
+            "Processing {COUNT} boot progress codes, time since last D-Bus update: {TIME}ms",
+            "COUNT", progressCodeData.size(), "TIME",
+            timeSinceLastUpdate.count());
+
+        // Process ALL entries - publish to PostCode interface
         for (const auto& [offset, progressCode] : progressCodeData)
         {
             uint64_t timestamp =
@@ -89,11 +105,29 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
             code[0] = ~code[0];
             this->value(std::make_tuple(code, secondary_post_code_t{}));
 
-            auto progressStage = getSbmrBootProgressStage(progressCode);
-            co_await updateBootProgressProperty(progressStage);
-            co_await updateBootProgressLastUpdateProperty(timestamp);
-            co_await updateBootProgressOemProperty(
-                std::format("0x{:016X}", progressCode));
+            // Store the latest state for batched D-Bus updates
+            pendingStage = getSbmrBootProgressStage(progressCode);
+            pendingOem = std::format("0x{:016X}", progressCode);
+            pendingTimestamp = timestamp;
+            hasPendingUpdates = true;
+        }
+
+        lg2::debug(
+            "DEBUG: Published {COUNT} codes to PostCode interface, latest: Stage={STAGE}, OEM={OEM}",
+            "COUNT", progressCodeData.size(), "STAGE", pendingStage, "OEM",
+            pendingOem);
+
+        // Flush D-Bus updates if enough time has passed OR if this is the first
+        // batch
+        if (hasPendingUpdates &&
+            (timeSinceLastUpdate.count() >= dbusUpdateIntervalMs ||
+             lastDbusUpdateTime == std::chrono::steady_clock::time_point{}))
+        {
+            lg2::debug(
+                "Flushing D-Bus updates (interval {INTERVAL}ms exceeded or first batch)",
+                "INTERVAL", dbusUpdateIntervalMs);
+            co_await flushPendingUpdates();
+            lastDbusUpdateTime = now;
         }
     }
     catch (const std::exception& e)
@@ -172,17 +206,17 @@ sdbusplus::async::task<void> BootProgressPublisher::updateBootProgressProperty(
     }
     catch (const std::exception& e)
     {
-        lg2::error("Failed to set BootProgress property: {ERROR}", "ERROR",
-                   e.what());
+        lg2::error(
+            "D-Bus Call failed to set BootProgress property to '{STAGE}': {ERROR}",
+            "STAGE", progressStage, "ERROR", e.what());
     }
     co_return;
 }
 
 sdbusplus::async::task<void>
     BootProgressPublisher::updateBootProgressLastUpdateProperty(
-        uint32_t timeStamp)
+        uint64_t bootProgressLastUpdate)
 {
-    uint64_t BootProgressLastUpdate = static_cast<uint64_t>(timeStamp);
     auto bootProgressProxy = sdbusplus::async::proxy()
                                  .service(bootProgressService)
                                  .path(bootProgressObject)
@@ -191,12 +225,13 @@ sdbusplus::async::task<void>
     try
     {
         co_await bootProgressProxy.set_property(ctx, "BootProgressLastUpdate",
-                                                BootProgressLastUpdate);
+                                                bootProgressLastUpdate);
     }
     catch (const std::exception& e)
     {
-        lg2::error("Failed to set BootProgressLastUpdate property: {ERROR}",
-                   "ERROR", e.what());
+        lg2::error(
+            "D-Bus Call failed to set BootProgressLastUpdate property to {TS}: {ERROR}",
+            "TS", bootProgressLastUpdate, "ERROR", e.what());
     }
     co_return;
 }
@@ -217,8 +252,52 @@ sdbusplus::async::task<void>
     }
     catch (const std::exception& e)
     {
-        lg2::error("Failed to set BootProgressOem property: {ERROR}", "ERROR",
-                   e.what());
+        lg2::error(
+            "D-Bus Call failed to set BootProgressOem property to '{OEM}': {ERROR}",
+            "OEM", oemLastState, "ERROR", e.what());
     }
+    co_return;
+}
+
+sdbusplus::async::task<void> BootProgressPublisher::flushPendingUpdates()
+{
+    if (!hasPendingUpdates)
+    {
+        lg2::debug("flushPendingUpdates called but no pending updates");
+        co_return;
+    }
+    uint32_t dbusCallCount = 0;
+
+    // Spawn D-Bus updates asynchronously (fire-and-forget)
+    // This prevents blocking and avoids contention with bmcweb
+    if (pendingStage != lastPublishedStage)
+    {
+        ctx.spawn(updateBootProgressProperty(pendingStage));
+        lastPublishedStage = pendingStage;
+        dbusCallCount++;
+    }
+    else
+    {
+        lg2::info("DEBUG: Stage unchanged ('{STAGE}'), skipping D-Bus call",
+                  "STAGE", pendingStage);
+    }
+
+    if (pendingOem != lastPublishedOem)
+    {
+        ctx.spawn(updateBootProgressOemProperty(pendingOem));
+        lastPublishedOem = pendingOem;
+        dbusCallCount++;
+    }
+
+    if (pendingTimestamp != lastPublishedTimestamp)
+    {
+        lg2::debug(
+            "Timestamp changed: {OLDTS} -> {NEWTS}, spawning async D-Bus call",
+            "OLDTS", lastPublishedTimestamp, "NEWTS", pendingTimestamp);
+        ctx.spawn(updateBootProgressLastUpdateProperty(pendingTimestamp));
+        lastPublishedTimestamp = pendingTimestamp;
+        dbusCallCount++;
+    }
+    hasPendingUpdates = false;
     co_return;
 }

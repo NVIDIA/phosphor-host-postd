@@ -63,7 +63,7 @@ option(
     'poll-interval',
     type: 'integer',
     min: 1,
-    value: 2,
+    value: 100,
     description: 'Polling interval for reading boot progress from devices',
 )
 option(

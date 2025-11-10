@@ -37,11 +37,25 @@ class BootProgressPublisher : public PostObject
 
   private:
     sdbusplus::async::context& ctx;
+    // Cache last published values to avoid redundant D-Bus updates
+    std::string lastPublishedStage;
+    std::string lastPublishedOem;
+    uint64_t lastPublishedTimestamp = 0;
+    // Batching state for reducing D-Bus update frequency
+    std::chrono::steady_clock::time_point lastDbusUpdateTime;
+    std::string pendingStage;
+    std::string pendingOem;
+    uint64_t pendingTimestamp = 0;
+    bool hasPendingUpdates = false;
+    // Minimum interval between D-Bus property updates (milliseconds)
+    static constexpr uint32_t dbusUpdateIntervalMs = 100;
+
     sdbusplus::async::task<void> updateBootProgressProperty(
         const std::string& progressStage);
     sdbusplus::async::task<void> updateBootProgressLastUpdateProperty(
-        uint32_t timeStamp);
+        uint64_t bootProgressLastUpdate);
     sdbusplus::async::task<void> updateBootProgressOemProperty(
         const std::string& oemLastState);
     std::string getSbmrBootProgressStage(const uint32_t& progressCode);
+    sdbusplus::async::task<void> flushPendingUpdates();
 };

@@ -76,7 +76,7 @@ sdbusplus::async::task<std::optional<uint32_t>> BootProgressPoller::getQbaseIdx(
         co_return std::nullopt;
     }
 
-    uint32_t currStart, currEnd, size;
+    uint32_t currStart = 0, currEnd = 0, size = 0;
     parseQueueIndices(regResult.value(), currStart, currEnd, size);
     co_return size;
 }
@@ -117,18 +117,42 @@ sdbusplus::async::task<
     currEnd = qbaseIdx + currEnd;
 
     uint32_t& idx = readIdx[queueNumber];
-    idx = currStart;
+    uint32_t& lastStart = prevStart[queueNumber];
+
+    if (idx == 0 && lastStart == 0)
+    {
+        idx = currStart;
+        lastStart = currStart;
+        lg2::debug(
+            "Initialising queue {QUEUE_NUMBER} on socket {SOCKET_ID}: start={START}, end={END}",
+            "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId, "START",
+            currStart, "END", currEnd);
+    }
+
+    if (idx == currEnd)
+    {
+        lg2::debug(
+            "No new entries for queue {QUEUE_NUMBER} on socket {SOCKET_ID}: idx={IDX}, end={END}",
+            "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId, "IDX", idx,
+            "END", currEnd);
+        co_return bootProgressEntries;
+    }
+
+    uint32_t iterations = 0;
+    const uint32_t maxIterations = queueSize;
+
     while (idx != currEnd)
     {
-        if (currStart != prevStart[queueNumber])
+        if (currStart != lastStart)
         {
             idx = currStart;
-            prevStart[queueNumber] = currStart;
+            lastStart = currStart;
             bootProgressEntries.emplace_back(
                 std::make_pair(0xFFFFFFFF, 0xFFFFFFFF));
             lg2::info(
-                "Queue {QUEUE_NUMBER} on socket {SOCKET_ID} overflow detected",
-                "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId);
+                "Queue {QUEUE_NUMBER} on socket {SOCKET_ID} overflow detected: new start={START}",
+                "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId, "START",
+                currStart);
         }
 
         const uint32_t tsAddr = scratchRamGroup0 + (8 * idx);
@@ -163,8 +187,17 @@ sdbusplus::async::task<
             std::make_pair(tsResult.value(), codeResult.value()));
 
         idx = ((idx - qbaseIdx + 1) % queueSize) + qbaseIdx;
+        ++iterations;
 
-        // Refresh curStart, curEnd, queueSize for the next iteration
+        if (iterations > maxIterations)
+        {
+            lg2::error(
+                "Queue {QUEUE_NUMBER} on socket {SOCKET_ID} exceeded expected iterations: idx={IDX}, end={END}, iterations={ITER}, size={SIZE}",
+                "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId, "IDX", idx,
+                "END", currEnd, "ITER", iterations, "SIZE", queueSize);
+            break;
+        }
+
         regResult = co_await readRegister(queueIndexStart[queueNumber]);
         if (!regResult.has_value())
         {
@@ -173,8 +206,14 @@ sdbusplus::async::task<
                 "SOCKET_ID", socketId, "QUEUE_NUMBER", queueNumber);
             co_return std::nullopt;
         }
-        parseQueueIndices(regResult.value(), currStart, currEnd, queueSize);
+
+        uint32_t newStart = 0;
+        uint32_t newEnd = 0;
+        parseQueueIndices(regResult.value(), newStart, newEnd, queueSize);
+        currStart = qbaseIdx + newStart;
+        currEnd = qbaseIdx + newEnd;
     }
+    lastStart = currStart;
     co_return bootProgressEntries;
 }
 

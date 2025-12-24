@@ -26,7 +26,9 @@ BootProgressManager::BootProgressManager(
     std::shared_ptr<BootProgressPublisher> publisher,
     std::chrono::milliseconds pollInterval) :
     ctx(ctx), publisher(publisher), pollInterval(pollInterval)
-{}
+{
+    ctx.spawn(periodicPublishCheck());
+}
 
 void BootProgressManager::onBootProgressData(
     int socketId,
@@ -50,8 +52,7 @@ void BootProgressManager::onBootProgressData(
                              bootProgressEntries.end());
     if (publisher && isAllSocketDataReady())
     {
-        aggregateAndSortAllSocketData();
-        ctx.spawn(publisher->update(allSocketProgressEntries));
+        tryPublish();
     }
 }
 
@@ -156,4 +157,30 @@ void BootProgressManager::aggregateAndSortAllSocketData()
     std::stable_sort(
         allSocketProgressEntries.begin(), allSocketProgressEntries.end(),
         [](const auto& a, const auto& b) { return a.first < b.first; });
+}
+
+void BootProgressManager::tryPublish()
+{
+    aggregateAndSortAllSocketData();
+    if (!publisher || allSocketProgressEntries.empty())
+    {
+        lg2::warning(
+            "tryPublish: publisher or allSocketProgressEntries is empty");
+        return;
+    }
+    ctx.spawn(publisher->update(allSocketProgressEntries));
+}
+
+sdbusplus::async::task<void> BootProgressManager::periodicPublishCheck()
+{
+    const auto publishInterval = std::chrono::seconds(10);
+    while (!ctx.stop_requested())
+    {
+        co_await sdbusplus::async::sleep_for(ctx, publishInterval);
+        if (publisher)
+        {
+            tryPublish();
+        }
+    }
+    co_return;
 }

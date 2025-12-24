@@ -141,12 +141,18 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
 std::string BootProgressPublisher::getSbmrBootProgressStage(
     const uint32_t& progressCode)
 {
-    uint8_t b1 = progressCode & 0xFF;
-    uint8_t codeType = (b1 >> 6) & 0x03;
-    uint8_t codeClass = b1 & 0x3F;
-    uint8_t codeSubClass = (progressCode >> 8) & 0xFF;
-    uint16_t codeOperation = (progressCode >> 16) & 0xFFFF;
+    const uint8_t typeClassByte = (progressCode >> 24) & 0xFF;
+    const uint8_t codeType = (typeClassByte >> 6) & 0x03;
+    const uint8_t codeClass = typeClassByte & 0x3F;
+    const uint8_t codeSubClass = (progressCode >> 16) & 0xFF;
+    const uint16_t codeOperation = progressCode & 0xFFFF;
 
+    std::string progressCodeStr = std::format("0x{:08X}", progressCode);
+    lg2::debug(
+        "DEBUG: Progress Code: {PROGRESS_CODE}, Code Type: {CODE_TYPE}, Code Class: {CODE_CLASS}, Code SubClass: {CODE_SUB_CLASS}, Code Operation: {CODE_OPERATION}",
+        "PROGRESS_CODE", progressCodeStr, "CODE_TYPE", codeType, "CODE_CLASS",
+        codeClass, "CODE_SUB_CLASS", codeSubClass, "CODE_OPERATION",
+        codeOperation);
     // Return OEM if code type is unexpected
     if (codeType != efiProgressCode)
     {
@@ -266,27 +272,22 @@ sdbusplus::async::task<void> BootProgressPublisher::flushPendingUpdates()
         lg2::debug("flushPendingUpdates called but no pending updates");
         co_return;
     }
-    uint32_t dbusCallCount = 0;
 
     // Spawn D-Bus updates asynchronously (fire-and-forget)
     // This prevents blocking and avoids contention with bmcweb
-    if (pendingStage != lastPublishedStage)
+    if (pendingStage != lastPublishedStage || lastPublishedStage.empty())
     {
         ctx.spawn(updateBootProgressProperty(pendingStage));
         lastPublishedStage = pendingStage;
-        dbusCallCount++;
-    }
-    else
-    {
-        lg2::info("DEBUG: Stage unchanged ('{STAGE}'), skipping D-Bus call",
-                  "STAGE", pendingStage);
+        lg2::debug("Updating BootProgress property: {STAGE}", "STAGE",
+                   pendingStage);
     }
 
-    if (pendingOem != lastPublishedOem)
+    // Always update OEM property if it changed or if this is the first update
+    if (pendingOem != lastPublishedOem || lastPublishedOem.empty())
     {
         ctx.spawn(updateBootProgressOemProperty(pendingOem));
         lastPublishedOem = pendingOem;
-        dbusCallCount++;
     }
 
     if (pendingTimestamp != lastPublishedTimestamp)
@@ -296,7 +297,6 @@ sdbusplus::async::task<void> BootProgressPublisher::flushPendingUpdates()
             "OLDTS", lastPublishedTimestamp, "NEWTS", pendingTimestamp);
         ctx.spawn(updateBootProgressLastUpdateProperty(pendingTimestamp));
         lastPublishedTimestamp = pendingTimestamp;
-        dbusCallCount++;
     }
     hasPendingUpdates = false;
     co_return;

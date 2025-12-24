@@ -70,4 +70,6 @@ class BootProgressManager
 
     bool isAllSocketDataReady();
     void aggregateAndSortAllSocketData();
+    sdbusplus::async::task<void> periodicPublishCheck();
+    void tryPublish();
 };

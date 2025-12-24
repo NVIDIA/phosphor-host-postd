@@ -113,9 +113,6 @@ sdbusplus::async::task<
     }
 
     const uint32_t qbaseIdx = qbase.value();
-    currStart = qbaseIdx + currStart;
-    currEnd = qbaseIdx + currEnd;
-
     uint32_t& idx = readIdx[queueNumber];
     uint32_t& lastStart = prevStart[queueNumber];
 
@@ -183,8 +180,11 @@ sdbusplus::async::task<
             "Read timestamp {TS_RESULT} and code {CODE_RESULT} on socket {SOCKET_ID}, queue {QUEUE_NUMBER}",
             "TS_RESULT", tsResultStr, "CODE_RESULT", codeResultStr, "SOCKET_ID",
             socketId, "QUEUE_NUMBER", queueNumber);
-        bootProgressEntries.emplace_back(
-            std::make_pair(tsResult.value(), codeResult.value()));
+        if (codeResult.value() != 0x00000000)
+        {
+            bootProgressEntries.emplace_back(
+                std::make_pair(tsResult.value(), codeResult.value()));
+        }
 
         idx = ((idx - qbaseIdx + 1) % queueSize) + qbaseIdx;
         ++iterations;
@@ -197,21 +197,6 @@ sdbusplus::async::task<
                 "END", currEnd, "ITER", iterations, "SIZE", queueSize);
             break;
         }
-
-        regResult = co_await readRegister(queueIndexStart[queueNumber]);
-        if (!regResult.has_value())
-        {
-            lg2::error(
-                "Failed to refresh queue index during loop for socket {SOCKET_ID} queue {QUEUE_NUMBER}",
-                "SOCKET_ID", socketId, "QUEUE_NUMBER", queueNumber);
-            co_return std::nullopt;
-        }
-
-        uint32_t newStart = 0;
-        uint32_t newEnd = 0;
-        parseQueueIndices(regResult.value(), newStart, newEnd, queueSize);
-        currStart = qbaseIdx + newStart;
-        currEnd = qbaseIdx + newEnd;
     }
     lastStart = currStart;
     co_return bootProgressEntries;

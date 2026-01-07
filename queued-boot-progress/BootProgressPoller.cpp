@@ -45,7 +45,7 @@ sdbusplus::async::task<std::optional<uint32_t>>
     uint32_t regValue = 0;
     if (!device->readRegisterValue(regAddr, regValue))
     {
-        lg2::error("Failed to read register {REG_ADDR}", "REG_ADDR",
+        lg2::debug("Failed to read register {REG_ADDR}", "REG_ADDR",
                    std::format("0x{:08X}", regAddr));
         co_return std::nullopt;
     }
@@ -71,7 +71,7 @@ sdbusplus::async::task<std::optional<uint32_t>> BootProgressPoller::getQbaseIdx(
     auto regResult = co_await readRegister(queueIndexStart.at(0));
     if (!regResult.has_value())
     {
-        lg2::error("Failed to read queue base index for qnum {QNUM}", "QNUM",
+        lg2::debug("Failed to read queue base index for qnum {QNUM}", "QNUM",
                    qnum);
         co_return std::nullopt;
     }
@@ -91,7 +91,7 @@ sdbusplus::async::task<
     auto regResult = co_await readRegister(queueIndexStart[queueNumber]);
     if (!regResult.has_value())
     {
-        lg2::error(
+        lg2::debug(
             "Failed to read queue index for queue {QUEUE_NUMBER} on socket {SOCKET_ID}",
             "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId);
         co_return std::nullopt;
@@ -101,7 +101,7 @@ sdbusplus::async::task<
 
     if (queueSize == 0)
     {
-        lg2::error("Queue {QUEUE_NUMBER} on socket {SOCKET_ID} size is zero",
+        lg2::debug("Queue {QUEUE_NUMBER} on socket {SOCKET_ID} size is zero",
                    "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId);
         co_return std::nullopt;
     }
@@ -158,7 +158,7 @@ sdbusplus::async::task<
         auto tsResult = co_await readRegister(tsAddr);
         if (!tsResult.has_value())
         {
-            lg2::error(
+            lg2::debug(
                 "Failed to read timestamp at {TS_ADDR} for socket {SOCKET_ID} queue {QUEUE_NUMBER}",
                 "TS_ADDR", std::format("0x{:08X}", tsAddr), "SOCKET_ID",
                 socketId, "QUEUE_NUMBER", queueNumber);
@@ -168,7 +168,7 @@ sdbusplus::async::task<
         auto codeResult = co_await readRegister(codeAddr);
         if (!codeResult.has_value())
         {
-            lg2::error(
+            lg2::debug(
                 "Failed to read progress code at {CODE_ADDR} for socket {SOCKET_ID} queue {QUEUE_NUMBER}",
                 "CODE_ADDR", std::format("0x{:08X}", codeAddr), "SOCKET_ID",
                 socketId, "QUEUE_NUMBER", queueNumber);
@@ -211,7 +211,7 @@ sdbusplus::async::task<std::vector<std::pair<uint32_t, uint32_t>>>
         auto queueResults = co_await processQueue(qnum);
         if (!queueResults.has_value())
         {
-            lg2::info(
+            lg2::debug(
                 "pollEachQueue queues on socket {SOCKET_ID} process queue {QNUM} done no value",
                 "SOCKET_ID", socketId, "QNUM", qnum);
             continue;

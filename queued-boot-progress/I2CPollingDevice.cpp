@@ -35,7 +35,7 @@ I2CPollingDevice::I2CPollingDevice(const uint8_t& i2cBus,
     i2cFileDescriptor = ::open(busPath.c_str(), O_RDWR | O_CLOEXEC);
     if (i2cFileDescriptor < 0)
     {
-        lg2::error("Failed to open i2c bus: {BUS_PATH}", "BUS_PATH", busPath);
+        lg2::debug("Failed to open i2c bus: {BUS_PATH}", "BUS_PATH", busPath);
     }
 }
 
@@ -66,7 +66,7 @@ bool I2CPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
     std::vector<uint8_t> dummyRead;
     if (!i2cWriteRead(writeData, dummyRead))
     {
-        lg2::error("SET_READ_ADDR failed for register {REG_ADDR}", "REG_ADDR",
+        lg2::debug("SET_READ_ADDR failed for register {REG_ADDR}", "REG_ADDR",
                    regAddrStr);
         return false;
     }
@@ -74,13 +74,13 @@ bool I2CPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
     std::vector<uint8_t> readBuf(5);
     if (!i2cWriteRead(blockReadCmd, readBuf))
     {
-        lg2::error("BLOCK_READ failed for register {REG_ADDR}", "REG_ADDR",
+        lg2::debug("BLOCK_READ failed for register {REG_ADDR}", "REG_ADDR",
                    regAddrStr);
         return false;
     }
     if (readBuf.size() < 5)
     {
-        lg2::error("Too few bytes returned: {BYTES}", "BYTES",
+        lg2::debug("Too few bytes returned: {BYTES}", "BYTES",
                    static_cast<int>(readBuf[0]));
         return false;
     }
@@ -97,7 +97,7 @@ bool I2CPollingDevice::i2cWriteRead(std::vector<uint8_t> writeData,
 {
     if (i2cFileDescriptor < 0)
     {
-        lg2::error("I2C device not open: {BUS_PATH}", "BUS_PATH", busPath);
+        lg2::debug("I2C device not open: {BUS_PATH}", "BUS_PATH", busPath);
         return false;
     }
 
@@ -130,7 +130,7 @@ bool I2CPollingDevice::i2cWriteRead(std::vector<uint8_t> writeData,
     int ret = ::ioctl(i2cFileDescriptor, I2C_RDWR, &msgReadWrite);
     if (ret < 0)
     {
-        lg2::error("I2C combined WR/RD Failed! {RET}", "RET", ret);
+        lg2::debug("I2C combined WR/RD Failed! {RET}", "RET", ret);
         return false;
     }
     if (readCount && msgCount > 0)

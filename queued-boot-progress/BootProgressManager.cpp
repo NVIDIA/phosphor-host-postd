@@ -164,7 +164,7 @@ void BootProgressManager::tryPublish()
     aggregateAndSortAllSocketData();
     if (!publisher || allSocketProgressEntries.empty())
     {
-        lg2::warning(
+        lg2::debug(
             "tryPublish: publisher or allSocketProgressEntries is empty");
         return;
     }

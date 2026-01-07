@@ -93,7 +93,7 @@ bool USBPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
 {
     if (!devHandle)
     {
-        lg2::error("USB device not opened");
+        lg2::debug("USB device not opened");
         return false;
     }
     static constexpr uint8_t readLength = 4;
@@ -109,13 +109,13 @@ bool USBPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
                                 wIndex, readData.data(), readLength, timeoutMs);
     if (transferLength < 0)
     {
-        lg2::error("Failed to read register {REG_ADDR}: {ERROR}", "REG_ADDR",
+        lg2::debug("Failed to read register {REG_ADDR}: {ERROR}", "REG_ADDR",
                    regAddrStr, "ERROR", transferLength);
         return false;
     }
     if (transferLength != readLength)
     {
-        lg2::error("Failed to read register {REG_ADDR}: {ERROR}", "REG_ADDR",
+        lg2::debug("Failed to read register {REG_ADDR}: {ERROR}", "REG_ADDR",
                    regAddrStr, "ERROR", transferLength);
         return false;
     }
@@ -135,12 +135,12 @@ USBDeviceEnumerator::USBDeviceEnumerator(
 {
     if (libusb_init(&usbCtx) < 0)
     {
-        lg2::error("USBDeviceEnumerator: failed to init libusb");
+        lg2::debug("USBDeviceEnumerator: failed to init libusb");
         usbCtx = nullptr;
     }
     if (!libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG))
     {
-        lg2::error("USBDeviceEnumerator: hotplug not supported");
+        lg2::debug("USBDeviceEnumerator: hotplug not supported");
         hotplugSupported = false;
         return;
     }

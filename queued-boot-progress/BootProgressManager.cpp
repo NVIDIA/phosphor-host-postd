@@ -184,3 +184,11 @@ sdbusplus::async::task<void> BootProgressManager::periodicPublishCheck()
     }
     co_return;
 }
+
+void BootProgressManager::resetPublisherCachedState()
+{
+    if (publisher)
+    {
+        publisher->resetCachedState();
+    }
+}

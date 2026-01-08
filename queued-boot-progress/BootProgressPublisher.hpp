@@ -35,6 +35,8 @@ class BootProgressPublisher : public PostObject
     sdbusplus::async::task<void> update(
         const std::vector<std::pair<uint32_t, uint32_t>> progressCodeData);
 
+    void resetCachedState();
+
   private:
     sdbusplus::async::context& ctx;
     // Cache last published values to avoid redundant D-Bus updates

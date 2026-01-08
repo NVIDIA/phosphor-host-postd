@@ -61,6 +61,8 @@ class BootProgressManager
 
     void initIndices();
 
+    void resetPublisherCachedState();
+
   private:
     sdbusplus::async::context& ctx;
     std::shared_ptr<BootProgressPublisher> publisher;

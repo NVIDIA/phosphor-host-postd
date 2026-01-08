@@ -167,6 +167,9 @@ void Application::onHostPowerStateChange()
     {
         // If host is off, reset indices to 0
         bootProgressManager->initIndices();
+        // Reset publisher cached state since BootProgress property gets reset
+        // to Unspecified
+        bootProgressManager->resetPublisherCachedState();
     }
     else if (currentHostPowerState == hostPowerStateRunning)
     {

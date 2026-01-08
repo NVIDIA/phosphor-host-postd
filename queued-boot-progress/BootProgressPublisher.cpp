@@ -98,16 +98,16 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
                 std::chrono::duration_cast<std::chrono::microseconds>(
                     std::chrono::system_clock::now().time_since_epoch())
                     .count();
-            timestamp += (static_cast<uint64_t>(offset) * 1000ULL);
             auto code = bytesToVector(progressCode);
+            auto timeStampOffset = bytesToVector(offset);
             code[0] = ~code[0];
-            this->value(std::make_tuple(code, secondary_post_code_t{}), true);
+            this->value(std::make_tuple(code, timeStampOffset), true);
             code[0] = ~code[0];
-            this->value(std::make_tuple(code, secondary_post_code_t{}));
+            this->value(std::make_tuple(code, timeStampOffset));
 
             // Store the latest state for batched D-Bus updates
             pendingStage = getSbmrBootProgressStage(progressCode);
-            pendingOem = std::format("0x{:016X}", progressCode);
+            pendingOem = std::format("0x{:08X}", progressCode);
             pendingTimestamp = timestamp;
             hasPendingUpdates = true;
         }
@@ -300,4 +300,16 @@ sdbusplus::async::task<void> BootProgressPublisher::flushPendingUpdates()
     }
     hasPendingUpdates = false;
     co_return;
+}
+
+void BootProgressPublisher::resetCachedState()
+{
+    lg2::debug("Reset cached BootProgress state");
+    lastPublishedStage.clear();
+    lastPublishedOem.clear();
+    lastPublishedTimestamp = 0;
+    pendingStage.clear();
+    pendingOem.clear();
+    pendingTimestamp = 0;
+    hasPendingUpdates = false;
 }

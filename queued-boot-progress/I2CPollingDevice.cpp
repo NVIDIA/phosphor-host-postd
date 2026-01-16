@@ -26,20 +26,48 @@
 
 #include <phosphor-logging/lg2.hpp>
 
+#include <cerrno>
 #include <format>
 
 I2CPollingDevice::I2CPollingDevice(const uint8_t& i2cBus,
                                    const uint8_t& address) :
     busPath(std::format("/dev/i2c-{}", i2cBus)), deviceAddress(address)
 {
-    i2cFileDescriptor = ::open(busPath.c_str(), O_RDWR | O_CLOEXEC);
-    if (i2cFileDescriptor < 0)
-    {
-        lg2::debug("Failed to open i2c bus: {BUS_PATH}", "BUS_PATH", busPath);
-    }
+    openDevice();
 }
 
 I2CPollingDevice::~I2CPollingDevice()
+{
+    closeDevice();
+}
+
+bool I2CPollingDevice::openDevice()
+{
+    if (i2cFileDescriptor >= 0)
+    {
+        return true;
+    }
+
+    i2cFileDescriptor = ::open(busPath.c_str(), O_RDWR | O_CLOEXEC);
+    if (i2cFileDescriptor < 0)
+    {
+        lg2::debug("Failed to open i2c bus: {BUS_PATH}, errno: {ERRNO}",
+                   "BUS_PATH", busPath, "ERRNO", errno);
+        return false;
+    }
+
+    if (::ioctl(i2cFileDescriptor, I2C_SLAVE, deviceAddress) < 0)
+    {
+        lg2::debug(
+            "Failed to set I2C slave address: {BUS_PATH}, errno: {ERRNO}",
+            "BUS_PATH", busPath, "ERRNO", errno);
+        closeDevice();
+        return false;
+    }
+    return true;
+}
+
+void I2CPollingDevice::closeDevice()
 {
     if (i2cFileDescriptor >= 0)
     {
@@ -92,15 +120,30 @@ bool I2CPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
     return true;
 }
 
-bool I2CPollingDevice::i2cWriteRead(std::vector<uint8_t> writeData,
-                                    std::vector<uint8_t>& readBuf)
+bool I2CPollingDevice::performIoctlWithRetry(i2c_rdwr_ioctl_data& msgReadWrite)
 {
-    if (i2cFileDescriptor < 0)
+    if (!openDevice())
     {
-        lg2::debug("I2C device not open: {BUS_PATH}", "BUS_PATH", busPath);
+        lg2::debug("Failed to open I2C device: {BUS_PATH}", "BUS_PATH",
+                   busPath);
         return false;
     }
 
+    int ret = ::ioctl(i2cFileDescriptor, I2C_RDWR, &msgReadWrite);
+    if (ret >= 0)
+    {
+        return true;
+    }
+    closeDevice();
+    lg2::debug(
+        "I2C ioctl failed (errno: {ERRNO}), closed fd to release kernel reference: {BUS_PATH}",
+        "ERRNO", errno, "BUS_PATH", busPath);
+    return false;
+}
+
+bool I2CPollingDevice::i2cWriteRead(std::vector<uint8_t> writeData,
+                                    std::vector<uint8_t>& readBuf)
+{
     const size_t writeCount = writeData.size();
     const size_t readCount = readBuf.size();
     int msgCount = 0;
@@ -126,11 +169,9 @@ bool I2CPollingDevice::i2cWriteRead(std::vector<uint8_t> writeData,
     i2c_rdwr_ioctl_data msgReadWrite = {};
     msgReadWrite.msgs = i2cmsg;
     msgReadWrite.nmsgs = msgCount;
-    // Perform the combined write/read
-    int ret = ::ioctl(i2cFileDescriptor, I2C_RDWR, &msgReadWrite);
-    if (ret < 0)
+
+    if (!performIoctlWithRetry(msgReadWrite))
     {
-        lg2::debug("I2C combined WR/RD Failed! {RET}", "RET", ret);
         return false;
     }
     if (readCount && msgCount > 0)

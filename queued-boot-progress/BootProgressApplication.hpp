@@ -63,6 +63,5 @@ class Application
     Configuration config;
     std::string currentOSState;
     std::string currentHostPowerState;
-    std::chrono::milliseconds pollInterval{0};
     std::shared_ptr<BootProgressManager> bootProgressManager;
 };

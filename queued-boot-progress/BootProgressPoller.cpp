@@ -202,40 +202,38 @@ sdbusplus::async::task<
     co_return bootProgressEntries;
 }
 
-sdbusplus::async::task<std::vector<std::pair<uint32_t, uint32_t>>>
-    BootProgressPoller::pollEachQueue()
-{
-    std::vector<std::pair<uint32_t, uint32_t>> bootProgressEntries;
-    for (int qnum = 0; qnum < numberOfQueues; ++qnum)
-    {
-        auto queueResults = co_await processQueue(qnum);
-        if (!queueResults.has_value())
-        {
-            lg2::debug(
-                "pollEachQueue queues on socket {SOCKET_ID} process queue {QNUM} done no value",
-                "SOCKET_ID", socketId, "QNUM", qnum);
-            continue;
-        }
-        bootProgressEntries.insert(bootProgressEntries.end(),
-                                   queueResults.value().begin(),
-                                   queueResults.value().end());
-    }
-    co_return bootProgressEntries;
-}
-
 sdbusplus::async::task<void> BootProgressPoller::pollQueues()
 {
     while (!ctx.stop_requested())
     {
         if (pollStatus)
         {
-            auto entries = co_await pollEachQueue();
+            bool anyReadSucceeded = false;
+            std::vector<std::pair<uint32_t, uint32_t>> entries;
+
+            for (int qnum = 0; qnum < numberOfQueues; ++qnum)
+            {
+                auto queueResults = co_await processQueue(qnum);
+                if (queueResults.has_value())
+                {
+                    anyReadSucceeded = true;
+                    entries.insert(entries.end(), queueResults.value().begin(),
+                                   queueResults.value().end());
+                }
+            }
+            consecutiveFailures =
+                anyReadSucceeded ? 0 : (consecutiveFailures + 1);
+
             if (!entries.empty())
             {
                 processBootProgressData(socketId, entries);
             }
+            co_await sdbusplus::async::sleep_for(ctx, calculateSleepDuration());
         }
-        co_await sdbusplus::async::sleep_for(ctx, pollInterval);
+        else
+        {
+            co_await sdbusplus::async::sleep_for(ctx, pollInterval);
+        }
     }
     co_return;
 }
@@ -243,15 +241,41 @@ sdbusplus::async::task<void> BootProgressPoller::pollQueues()
 void BootProgressPoller::updatePollInterval(
     std::chrono::milliseconds newInterval)
 {
+    if (pollInterval != newInterval)
+    {
+        lg2::debug(
+            "Polling interval changed for socket {SOCKET_ID}: {OLD}ms -> {NEW}ms",
+            "SOCKET_ID", socketId, "OLD", pollInterval.count(), "NEW",
+            newInterval.count());
+    }
     pollInterval = newInterval;
 }
 
 void BootProgressPoller::updatePollStatus(bool newPollStatus)
 {
     pollStatus = newPollStatus;
+    consecutiveFailures = 0;
 }
 
 bool BootProgressPoller::isPolling() const
 {
     return pollStatus;
+}
+
+std::chrono::milliseconds BootProgressPoller::calculateSleepDuration() const
+{
+    constexpr int backoffThreshold = 10;
+    if (consecutiveFailures >= backoffThreshold)
+    {
+        // When device is not present, use exponential backoff with seconds as
+        // base Exponential backoff: baseSeconds * 2^(failures - threshold)
+        // (capped)
+        constexpr int baseSeconds = 2;
+        constexpr int maxBackoffMultiplier = 10;
+        int backoffFailures = consecutiveFailures - backoffThreshold;
+        int multiplier = 1 << std::min(backoffFailures, maxBackoffMultiplier);
+        int sleepSeconds = baseSeconds * multiplier;
+        return std::chrono::milliseconds(sleepSeconds * 1000);
+    }
+    return pollInterval;
 }

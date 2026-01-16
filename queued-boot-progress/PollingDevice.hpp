@@ -18,6 +18,8 @@
 #pragma once
 
 #include <libusb-1.0/libusb.h>
+#include <linux/i2c-dev.h>
+#include <linux/i2c.h>
 
 #include <sdbusplus/async.hpp>
 
@@ -69,6 +71,9 @@ class I2CPollingDevice : public PollingDevice
     uint8_t deviceAddress;
     int i2cFileDescriptor = -1;
 
+    bool openDevice();
+    void closeDevice();
+    bool performIoctlWithRetry(i2c_rdwr_ioctl_data& msgReadWrite);
     bool i2cWriteRead(std::vector<uint8_t> writeData,
                       std::vector<uint8_t>& readBuf);
 };

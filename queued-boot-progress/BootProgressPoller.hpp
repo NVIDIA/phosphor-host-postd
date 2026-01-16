@@ -51,12 +51,12 @@ class BootProgressPoller
     int socketId;
     onBootProgressDataCallback processBootProgressData = nullptr;
     bool pollStatus;
+    uint32_t consecutiveFailures = 0;
 
     static constexpr int numberOfQueues = 2;
 
     std::array<uint32_t, numberOfQueues> readIdx{};
     std::array<uint32_t, numberOfQueues> prevStart{};
-    std::vector<std::pair<uint32_t, uint32_t>> bootProgress;
 
     static constexpr uint32_t scratchRamGroup0 = 0x8000;
     static constexpr uint32_t queue0IndexRegister = 0x2000;
@@ -71,9 +71,8 @@ class BootProgressPoller
     sdbusplus::async::task<
         std::optional<std::vector<std::pair<uint32_t, uint32_t>>>>
         processQueue(int queueNumber);
-    sdbusplus::async::task<std::vector<std::pair<uint32_t, uint32_t>>>
-        pollEachQueue();
     sdbusplus::async::task<std::optional<uint32_t>> getQbaseIdx(int qnum);
     void parseQueueIndices(uint32_t regVal, uint32_t& start, uint32_t& end,
                            uint32_t& size);
+    std::chrono::milliseconds calculateSleepDuration() const;
 };

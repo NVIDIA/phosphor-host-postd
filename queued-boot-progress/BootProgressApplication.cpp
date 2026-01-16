@@ -141,50 +141,55 @@ void Application::updatePollInterval()
                       currentHostPowerState == hostPowerStateQuiesced ||
                       currentHostPowerState == hostPowerStateTransition ||
                       currentHostPowerState.empty());
+    const auto baseInterval = config.pollInterval;
+    std::chrono::milliseconds calculatedInterval = baseInterval;
 
     if (isHostOff)
     {
         lg2::info("Host is off - disabling boot progress polling");
+        constexpr int disabledCheckMultiplier = 10;
+        calculatedInterval = baseInterval * disabledCheckMultiplier;
+        lg2::debug(
+            "Setting polling interval to {INTERVAL}ms (host off, base * {MULT})",
+            "INTERVAL", calculatedInterval.count(), "MULT",
+            disabledCheckMultiplier);
+        bootProgressManager->updatePollInterval(calculatedInterval);
         bootProgressManager->updatePollStatus(false);
         return;
     }
-    // Re-enable polling when host is on
-    bootProgressManager->updatePollStatus(true);
-
     if (currentOSState == osStateBootComplete &&
         currentHostPowerState == hostPowerStateRunning)
     {
-        constexpr auto maxInterval = std::chrono::milliseconds(3600000);
-        auto newInterval = pollInterval * 100;
-        pollInterval = (newInterval > maxInterval) ? maxInterval : newInterval;
+        constexpr int bootCompleteMultiplier = 100;
+        constexpr std::chrono::milliseconds maxPollInterval{3600000};
+        calculatedInterval =
+            std::min(baseInterval * bootCompleteMultiplier, maxPollInterval);
     }
-    bootProgressManager->updatePollInterval(pollInterval);
+
+    lg2::debug("Setting polling interval to {INTERVAL}ms", "INTERVAL",
+               calculatedInterval.count());
+    bootProgressManager->updatePollInterval(calculatedInterval);
+    bootProgressManager->updatePollStatus(true);
 }
 
 void Application::onHostPowerStateChange()
 {
     if (currentHostPowerState == hostPowerStateOff)
     {
-        // If host is off, reset indices to 0
         bootProgressManager->initIndices();
-        // Reset publisher cached state since BootProgress property gets reset
-        // to Unspecified
         bootProgressManager->resetPublisherCachedState();
     }
     else if (currentHostPowerState == hostPowerStateRunning)
     {
-        lg2::info("Host powered on - enabling boot progress polling");
-        bootProgressManager->updatePollStatus(true);
+        lg2::info("Host is on - enabling boot progress polling");
     }
-
     updatePollInterval();
 }
 
 Application::Application(
     sdbusplus::async::context& ctx, const Configuration& configuration,
     std::shared_ptr<BootProgressManager> bootProgressManager) :
-    ctx(ctx), config(configuration), pollInterval(config.pollInterval),
-    bootProgressManager(bootProgressManager)
+    ctx(ctx), config(configuration), bootProgressManager(bootProgressManager)
 {}
 
 sdbusplus::async::task<void> Application::initialize()

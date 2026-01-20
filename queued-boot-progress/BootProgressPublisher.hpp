@@ -21,7 +21,6 @@
 #include <sdbusplus/async.hpp>
 
 #include <chrono>
-#include <map>
 #include <string>
 #include <vector>
 
@@ -45,10 +44,6 @@ class BootProgressPublisher : public PostObject
     uint64_t lastPublishedTimestamp = 0;
     // Batching state for reducing D-Bus update frequency
     std::chrono::steady_clock::time_point lastDbusUpdateTime;
-    std::string pendingStage;
-    std::string pendingOem;
-    uint64_t pendingTimestamp = 0;
-    bool hasPendingUpdates = false;
     // Minimum interval between D-Bus property updates (milliseconds)
     static constexpr uint32_t dbusUpdateIntervalMs = 100;
 
@@ -59,5 +54,6 @@ class BootProgressPublisher : public PostObject
     sdbusplus::async::task<void> updateBootProgressOemProperty(
         const std::string& oemLastState);
     std::string getSbmrBootProgressStage(const uint32_t& progressCode);
-    sdbusplus::async::task<void> flushPendingUpdates();
+    sdbusplus::async::task<void> flushPendingUpdates(const std::string& stage,
+                                                     const std::string& oem);
 };

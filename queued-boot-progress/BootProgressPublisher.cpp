@@ -20,8 +20,6 @@
 #include <phosphor-logging/lg2.hpp>
 
 #include <format>
-#include <fstream>
-#include <unordered_map>
 
 constexpr auto bootProgressOem = "OEM";
 constexpr auto bootProgressOsRunning = "OSRunning";
@@ -45,10 +43,10 @@ constexpr auto efiSoftwareEfiBootService = 0x10;
 
 // EFI_STATUS_CODE_OPERATION
 constexpr auto efiIoBusPciResAlloc = 0x0110;
-constexpr auto efiSwDxeCorePcHandoffToNext = 0x0110;
-constexpr auto efiSwPcUserSetup = 0x0700;
-constexpr auto efiSwOsLoaderStart = 0x0180;
-constexpr auto efiSwBsPcExitBootServices = 0x1910;
+constexpr auto efiSwDxeCorePcHandoffToNext = 0x1001;
+constexpr auto efiSwPcUserSetup = 0x0007;
+constexpr auto efiSwOsLoaderStart = 0x8000;
+constexpr auto efiSwBsPcExitBootServices = 0x1019;
 
 constexpr auto bootProgressService = "xyz.openbmc_project.State.Host";
 constexpr auto bootProgressObject = "/xyz/openbmc_project/state/host0";
@@ -80,24 +78,12 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
         {
             co_return;
         }
-
-        auto now = std::chrono::steady_clock::now();
-        auto timeSinceLastUpdate =
-            std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - lastDbusUpdateTime);
-
-        lg2::debug(
-            "Processing {COUNT} boot progress codes, time since last D-Bus update: {TIME}ms",
-            "COUNT", progressCodeData.size(), "TIME",
-            timeSinceLastUpdate.count());
-
-        // Process ALL entries - publish to PostCode interface
+        /* Initialize with last published stage to preserve OSRunning state
+         * (OSRunning is final and should never be overwritten) */
+        std::string latestStage = lastPublishedStage;
+        std::string latestOem;
         for (const auto& [offset, progressCode] : progressCodeData)
         {
-            uint64_t timestamp =
-                std::chrono::duration_cast<std::chrono::microseconds>(
-                    std::chrono::system_clock::now().time_since_epoch())
-                    .count();
             auto code = bytesToVector(progressCode);
             auto timeStampOffset = bytesToVector(offset);
             code[0] = ~code[0];
@@ -105,28 +91,72 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
             code[0] = ~code[0];
             this->value(std::make_tuple(code, timeStampOffset));
 
-            // Store the latest state for batched D-Bus updates
-            pendingStage = getSbmrBootProgressStage(progressCode);
-            pendingOem = std::format("0x{:08X}", progressCode);
-            pendingTimestamp = timestamp;
-            hasPendingUpdates = true;
+            latestOem = std::format("0x{:08X}", progressCode);
+
+            /* Stage arbitration logic:
+             * - Non-OEM stages (PCIInit, SystemInitComplete, etc.) take
+             * precedence
+             * - OEM codes only set the stage if no valid stage has been
+             * detected yet
+             * - Once OSRunning is reached, it becomes immutable (final state)
+             */
+            std::string detectedStage = getSbmrBootProgressStage(progressCode);
+            if (latestStage != bootProgressOsRunning)
+            {
+                if (detectedStage != bootProgressOem)
+                {
+                    /* Non-OEM stage: always update (overwrites OEM or previous
+                     * stage) */
+                    latestStage = detectedStage;
+                }
+                else if (latestStage.empty())
+                {
+                    /* OEM code and no stage set yet: use OEM as initial stage
+                     * This ensures BootProgress property gets updated from
+                     * "None" to "OEM" at boot start when only OEM codes are
+                     * present */
+                    latestStage = bootProgressOem;
+                }
+            }
         }
 
-        lg2::debug(
-            "DEBUG: Published {COUNT} codes to PostCode interface, latest: Stage={STAGE}, OEM={OEM}",
-            "COUNT", progressCodeData.size(), "STAGE", pendingStage, "OEM",
-            pendingOem);
+        lg2::debug("Processed {COUNT} codes, latest: Stage={STAGE}, OEM={OEM}",
+                   "COUNT", progressCodeData.size(), "STAGE", latestStage,
+                   "OEM", latestOem);
 
-        // Flush D-Bus updates if enough time has passed OR if this is the first
-        // batch
-        if (hasPendingUpdates &&
-            (timeSinceLastUpdate.count() >= dbusUpdateIntervalMs ||
-             lastDbusUpdateTime == std::chrono::steady_clock::time_point{}))
+        /* Flush decision logic:
+         * 1. Non-OEM stage changes are always flushed immediately (unless
+         * OSRunning already published)
+         * 2. OEM codes are throttled to reduce D-Bus traffic (flushed
+         * periodically or on first update) */
+        auto now = std::chrono::steady_clock::now();
+        bool isNonOemStage =
+            (!latestStage.empty() && latestStage != bootProgressOem &&
+             latestStage != lastPublishedStage);
+
+        /* Immediate flush for non-OEM stage changes (unless OSRunning is
+         * already published) */
+        bool shouldFlush =
+            (isNonOemStage && lastPublishedStage != bootProgressOsRunning);
+
+        /* For OEM codes: flush if throttling interval elapsed, first update, or
+         * first OEM code */
+        if (!shouldFlush && !latestOem.empty())
         {
-            lg2::debug(
-                "Flushing D-Bus updates (interval {INTERVAL}ms exceeded or first batch)",
-                "INTERVAL", dbusUpdateIntervalMs);
-            co_await flushPendingUpdates();
+            auto timeSinceLastUpdate =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now - lastDbusUpdateTime);
+
+            shouldFlush =
+                (timeSinceLastUpdate.count() >= dbusUpdateIntervalMs ||
+                 lastDbusUpdateTime ==
+                     std::chrono::steady_clock::time_point{} ||
+                 lastPublishedOem.empty());
+        }
+
+        if (shouldFlush)
+        {
+            co_await flushPendingUpdates(latestStage, latestOem);
             lastDbusUpdateTime = now;
         }
     }
@@ -265,41 +295,48 @@ sdbusplus::async::task<void>
     co_return;
 }
 
-sdbusplus::async::task<void> BootProgressPublisher::flushPendingUpdates()
+sdbusplus::async::task<void> BootProgressPublisher::flushPendingUpdates(
+    const std::string& stage, const std::string& oem)
 {
-    if (!hasPendingUpdates)
+    /* BootProgress update rules:
+     * - Non-empty stage required, OSRunning is final (immutable once published)
+     * - Non-OEM stages: update on change or first publish
+     * - OEM stage: update only on first publish (initial state) */
+    bool isFirstPublish = lastPublishedStage.empty();
+    bool isOemStage = (stage == bootProgressOem);
+    bool isStageChanged = (stage != lastPublishedStage);
+
+    /* Update BootProgress if:
+     * - Stage is non-empty AND
+     * - OSRunning not already published AND
+     * - (First publish OR (non-OEM stage changed)) */
+    bool updateStage = !stage.empty() &&
+                       lastPublishedStage != bootProgressOsRunning &&
+                       (isFirstPublish || (!isOemStage && isStageChanged));
+
+    if (updateStage)
     {
-        lg2::debug("flushPendingUpdates called but no pending updates");
-        co_return;
+        co_await updateBootProgressProperty(stage);
+        lastPublishedStage = stage;
     }
 
-    // Spawn D-Bus updates asynchronously (fire-and-forget)
-    // This prevents blocking and avoids contention with bmcweb
-    if (pendingStage != lastPublishedStage || lastPublishedStage.empty())
+    /* BootProgressOem property: update whenever OEM code changes or on first
+     * update */
+    if (!oem.empty() && (oem != lastPublishedOem || lastPublishedOem.empty()))
     {
-        ctx.spawn(updateBootProgressProperty(pendingStage));
-        lastPublishedStage = pendingStage;
-        lg2::debug("Updating BootProgress property: {STAGE}", "STAGE",
-                   pendingStage);
+        co_await updateBootProgressOemProperty(oem);
+        lastPublishedOem = oem;
     }
 
-    // Always update OEM property if it changed or if this is the first update
-    if (pendingOem != lastPublishedOem || lastPublishedOem.empty())
+    uint64_t currentTimestamp =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch())
+            .count();
+    if (currentTimestamp != lastPublishedTimestamp)
     {
-        ctx.spawn(updateBootProgressOemProperty(pendingOem));
-        lastPublishedOem = pendingOem;
+        co_await updateBootProgressLastUpdateProperty(currentTimestamp);
+        lastPublishedTimestamp = currentTimestamp;
     }
-
-    if (pendingTimestamp != lastPublishedTimestamp)
-    {
-        lg2::debug(
-            "Timestamp changed: {OLDTS} -> {NEWTS}, spawning async D-Bus call",
-            "OLDTS", lastPublishedTimestamp, "NEWTS", pendingTimestamp);
-        ctx.spawn(updateBootProgressLastUpdateProperty(pendingTimestamp));
-        lastPublishedTimestamp = pendingTimestamp;
-    }
-    hasPendingUpdates = false;
-    co_return;
 }
 
 void BootProgressPublisher::resetCachedState()
@@ -308,8 +345,5 @@ void BootProgressPublisher::resetCachedState()
     lastPublishedStage.clear();
     lastPublishedOem.clear();
     lastPublishedTimestamp = 0;
-    pendingStage.clear();
-    pendingOem.clear();
-    pendingTimestamp = 0;
-    hasPendingUpdates = false;
+    lastDbusUpdateTime = std::chrono::steady_clock::time_point{};
 }

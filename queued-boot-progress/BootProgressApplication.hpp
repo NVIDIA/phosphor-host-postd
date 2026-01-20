@@ -42,6 +42,20 @@ constexpr std::string_view hostPowerStateQuiesced =
 constexpr std::string_view hostPowerStateTransition =
     "xyz.openbmc_project.State.Host.HostState.TransitioningToOff";
 
+constexpr std::string_view bootProgressOsRunningStage =
+    "xyz.openbmc_project.State.Boot.Progress.ProgressStages.OSRunning";
+
+constexpr std::string_view dbusHostStateService =
+    "xyz.openbmc_project.State.Host";
+constexpr std::string_view dbusHostStatePath =
+    "/xyz/openbmc_project/state/host0";
+constexpr std::string_view dbusOSStatusInterface =
+    "xyz.openbmc_project.State.OperatingSystem.Status";
+constexpr std::string_view dbusHostStateInterface =
+    "xyz.openbmc_project.State.Host";
+constexpr std::string_view dbusBootProgressInterface =
+    "xyz.openbmc_project.State.Boot.Progress";
+
 class Application
 {
   public:
@@ -55,13 +69,18 @@ class Application
     sdbusplus::async::task<void> getInitialOsState();
     sdbusplus::async::task<void> monitorHostPowerState();
     sdbusplus::async::task<void> getInitialHostPowerState();
+    sdbusplus::async::task<void> monitorBootProgress();
+    sdbusplus::async::task<void> getInitialBootProgress();
     void onHostPowerStateChange();
     void onOSStateChange();
+    void onBootProgressChange();
     void updatePollInterval();
+    bool isHostPowerStateOff() const;
 
     sdbusplus::async::context& ctx;
     Configuration config;
     std::string currentOSState;
     std::string currentHostPowerState;
+    std::string currentBootProgress;
     std::shared_ptr<BootProgressManager> bootProgressManager;
 };

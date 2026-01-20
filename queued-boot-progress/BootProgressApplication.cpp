@@ -28,11 +28,10 @@ sdbusplus::async::task<void> Application::getInitialOsState()
 {
     try
     {
-        auto osStateProxy =
-            sdbusplus::async::proxy()
-                .service("xyz.openbmc_project.State.Host")
-                .path("/xyz/openbmc_project/state/host0")
-                .interface("xyz.openbmc_project.State.OperatingSystem.Status");
+        auto osStateProxy = sdbusplus::async::proxy()
+                                .service(dbusHostStateService)
+                                .path(dbusHostStatePath)
+                                .interface(dbusOSStatusInterface);
         currentOSState = co_await osStateProxy.get_property<std::string>(
             ctx, "OperatingSystemState");
         lg2::info("Initial OS state: {STATE}", "STATE", currentOSState);
@@ -47,9 +46,8 @@ sdbusplus::async::task<void> Application::getInitialOsState()
 sdbusplus::async::task<void> Application::monitorOSState()
 {
     auto osStateMatch = sdbusplus::async::match(
-        ctx, rulesInterface::propertiesChanged(
-                 "/xyz/openbmc_project/state/host0",
-                 "xyz.openbmc_project.State.OperatingSystem.Status"));
+        ctx, rulesInterface::propertiesChanged(dbusHostStatePath,
+                                               dbusOSStatusInterface));
     while (!ctx.stop_requested())
     {
         try
@@ -80,9 +78,9 @@ sdbusplus::async::task<void> Application::getInitialHostPowerState()
     try
     {
         auto hostStateProxy = sdbusplus::async::proxy()
-                                  .service("xyz.openbmc_project.State.Host")
-                                  .path("/xyz/openbmc_project/state/host0")
-                                  .interface("xyz.openbmc_project.State.Host");
+                                  .service(dbusHostStateService)
+                                  .path(dbusHostStatePath)
+                                  .interface(dbusHostStateInterface);
         currentHostPowerState =
             co_await hostStateProxy.get_property<std::string>(
                 ctx, "CurrentHostState");
@@ -101,9 +99,8 @@ sdbusplus::async::task<void> Application::getInitialHostPowerState()
 sdbusplus::async::task<void> Application::monitorHostPowerState()
 {
     auto powerStateMatch = sdbusplus::async::match(
-        ctx,
-        rulesInterface::propertiesChanged("/xyz/openbmc_project/state/host0",
-                                          "xyz.openbmc_project.State.Host"));
+        ctx, rulesInterface::propertiesChanged(dbusHostStatePath,
+                                               dbusHostStateInterface));
     while (!ctx.stop_requested())
     {
         try
@@ -135,16 +132,69 @@ void Application::onOSStateChange()
     updatePollInterval();
 }
 
+sdbusplus::async::task<void> Application::monitorBootProgress()
+{
+    auto bootProgressMatch = sdbusplus::async::match(
+        ctx, rulesInterface::propertiesChanged(dbusHostStatePath,
+                                               dbusBootProgressInterface));
+    while (!ctx.stop_requested())
+    {
+        try
+        {
+            auto [iface, changed, invalidated] =
+                co_await bootProgressMatch.next<
+                    std::string,
+                    std::map<std::string, std::variant<std::string, int32_t,
+                                                       uint32_t, bool>>,
+                    std::vector<std::string>>();
+            auto it = changed.find("BootProgress");
+            if (it != changed.end())
+            {
+                currentBootProgress = std::get<std::string>(it->second);
+                onBootProgressChange();
+            }
+        }
+        catch (const std::exception& e)
+        {
+            lg2::error("Error monitoring BootProgress: {ERROR}", "ERROR",
+                       e.what());
+        }
+    }
+}
+
+sdbusplus::async::task<void> Application::getInitialBootProgress()
+{
+    try
+    {
+        auto bootProgressProxy = sdbusplus::async::proxy()
+                                     .service(dbusHostStateService)
+                                     .path(dbusHostStatePath)
+                                     .interface(dbusBootProgressInterface);
+        currentBootProgress =
+            co_await bootProgressProxy.get_property<std::string>(
+                ctx, "BootProgress");
+        lg2::info("Initial BootProgress: {BOOT_PROGRESS}", "BOOT_PROGRESS",
+                  currentBootProgress);
+    }
+    catch (const std::exception& e)
+    {
+        lg2::error("Error getting initial BootProgress: {ERROR}", "ERROR",
+                   e.what());
+        currentBootProgress.clear();
+    }
+}
+
+void Application::onBootProgressChange()
+{
+    updatePollInterval();
+}
+
 void Application::updatePollInterval()
 {
-    bool isHostOff = (currentHostPowerState == hostPowerStateOff ||
-                      currentHostPowerState == hostPowerStateQuiesced ||
-                      currentHostPowerState == hostPowerStateTransition ||
-                      currentHostPowerState.empty());
     const auto baseInterval = config.pollInterval;
     std::chrono::milliseconds calculatedInterval = baseInterval;
 
-    if (isHostOff)
+    if (isHostPowerStateOff())
     {
         lg2::info("Host is off - disabling boot progress polling");
         constexpr int disabledCheckMultiplier = 10;
@@ -158,7 +208,8 @@ void Application::updatePollInterval()
         return;
     }
     if (currentOSState == osStateBootComplete &&
-        currentHostPowerState == hostPowerStateRunning)
+        currentHostPowerState == hostPowerStateRunning &&
+        currentBootProgress == bootProgressOsRunningStage)
     {
         constexpr int bootCompleteMultiplier = 100;
         constexpr std::chrono::milliseconds maxPollInterval{3600000};
@@ -174,7 +225,7 @@ void Application::updatePollInterval()
 
 void Application::onHostPowerStateChange()
 {
-    if (currentHostPowerState == hostPowerStateOff)
+    if (isHostPowerStateOff())
     {
         bootProgressManager->initIndices();
         bootProgressManager->resetPublisherCachedState();
@@ -196,8 +247,18 @@ sdbusplus::async::task<void> Application::initialize()
 {
     co_await getInitialOsState();
     co_await getInitialHostPowerState();
+    co_await getInitialBootProgress();
     ctx.spawn(monitorOSState());
     ctx.spawn(monitorHostPowerState());
+    ctx.spawn(monitorBootProgress());
     updatePollInterval();
     co_return;
+}
+
+bool Application::isHostPowerStateOff() const
+{
+    return (currentHostPowerState == hostPowerStateOff ||
+            currentHostPowerState == hostPowerStateQuiesced ||
+            currentHostPowerState == hostPowerStateTransition ||
+            currentHostPowerState.empty());
 }

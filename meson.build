@@ -64,6 +64,13 @@ elif get_option('queued-boot-progress').allowed()
     if poll_interval > 0
         snoopd_args += ' -p ' + poll_interval.to_string()
     endif
+    cak_cpu_count = get_option('cak-cpu-count')
+    if cak_cpu_count > 0
+        add_project_arguments(
+            '-DCAK_CPU_COUNT=' + cak_cpu_count.to_string(),
+            language: 'cpp',
+        )
+    endif
 endif
 
 if snoopd_src.length() == 0

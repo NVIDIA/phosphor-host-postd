@@ -19,6 +19,8 @@
 #include "lpcsnoop/snoop.hpp"
 
 #include <sdbusplus/async.hpp>
+#include <sdbusplus/server/object.hpp>
+#include <xyz/openbmc_project/State/Boot/Progress/server.hpp>
 
 #include <chrono>
 #include <string>
@@ -37,7 +39,27 @@ class BootProgressPublisher : public PostObject
     void resetCachedState();
 
   private:
+#ifdef CAK_CPU_COUNT
+    enum class CakStage
+    {
+        EarlyBoot,
+        Waiting,
+        Complete,
+    };
+
+    using BootProgressInterface =
+        sdbusplus::xyz::openbmc_project::State::Boot::server::Progress;
+    using BootProgressObject =
+        sdbusplus::server::object_t<BootProgressInterface>;
+#endif
+
     sdbusplus::async::context& ctx;
+#ifdef CAK_CPU_COUNT
+    std::unique_ptr<BootProgressObject> cakBootProgressObj;
+    std::vector<CakStage> cakCpuStages;
+    std::string lastPublishedCakStage;
+    bool cakEnterSeen = false;
+#endif
     // Cache last published values to avoid redundant D-Bus updates
     std::string lastPublishedStage;
     std::string lastPublishedOem;
@@ -56,4 +78,9 @@ class BootProgressPublisher : public PostObject
     std::string getSbmrBootProgressStage(const uint32_t& progressCode);
     sdbusplus::async::task<void> flushPendingUpdates(const std::string& stage,
                                                      const std::string& oem);
+
+#ifdef CAK_CPU_COUNT
+    void updateCakState(const uint32_t& progressCode);
+    void publishCakStageIfChanged(const std::string& stage);
+#endif
 };

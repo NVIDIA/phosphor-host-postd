@@ -104,6 +104,14 @@ void BootProgressManager::onDeviceRemoved(TransportInterface transportInterface,
         "Device removed: transportInterface {TRANSPORT_INTERFACE}, bus {BUS}, address {ADDRESS}, socketId {SOCKET_ID}",
         "TRANSPORT_INTERFACE", static_cast<int>(transportInterface), "BUS", bus,
         "ADDRESS", address, "SOCKET_ID", socketId);
+
+#ifdef CAK_CPU_COUNT
+    // Reset CAK state to EarlyBoot when USB device(s) go down
+    if (transportInterface == TransportInterface::USB)
+    {
+        resetPublisherCachedState();
+    }
+#endif
 }
 
 void BootProgressManager::updatePollInterval(

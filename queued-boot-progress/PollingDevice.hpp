@@ -22,6 +22,7 @@
 #include <linux/i2c.h>
 
 #include <sdbusplus/async.hpp>
+#include <sdbusplus/async/fdio.hpp>
 
 #include <chrono>
 #include <cstdint>
@@ -153,6 +154,15 @@ class USBDeviceEnumerator : public PollingDeviceEnumerator
     void handleHotplug(libusb_device* dev, libusb_hotplug_event event);
 
     void scanDeviceList();
+    static void pollfdAddedCallback(int fd, short events, void* userData);
+    static void pollfdRemovedCallback(int fd, void* userData);
+    void addWatcher(int fd);
+    void removeWatcher(int fd);
+    void attachFirstPollfd(bool warnIfNull = false);
+    void processLibusbEvents();
+
+    std::unique_ptr<sdbusplus::async::fdio> libusbBell;
+    int libusbBellFd = -1;
 };
 
 std::shared_ptr<PollingDevice> getPollingDevice(

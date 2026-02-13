@@ -18,6 +18,8 @@
 #include "BootProgressManager.hpp"
 #include "PollingDevice.hpp"
 
+#include <sys/time.h>
+
 #include <phosphor-logging/lg2.hpp>
 
 #include <format>
@@ -137,6 +139,7 @@ USBDeviceEnumerator::USBDeviceEnumerator(
     {
         lg2::debug("USBDeviceEnumerator: failed to init libusb");
         usbCtx = nullptr;
+        return;
     }
     if (!libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG))
     {
@@ -156,6 +159,10 @@ USBDeviceEnumerator::USBDeviceEnumerator(
         lg2::error("USBDeviceEnumerator: failed to register hotplug callback");
         return;
     }
+    scanDeviceList();
+    libusb_set_pollfd_notifiers(usbCtx, pollfdAddedCallback,
+                                pollfdRemovedCallback, this);
+    attachFirstPollfd(true);
 }
 
 USBDeviceEnumerator::~USBDeviceEnumerator()
@@ -166,6 +173,9 @@ USBDeviceEnumerator::~USBDeviceEnumerator()
     }
     if (usbCtx)
     {
+        libusb_set_pollfd_notifiers(usbCtx, nullptr, nullptr, nullptr);
+        libusbBell.reset();
+        libusbBellFd = -1;
         libusb_exit(usbCtx);
     }
 }
@@ -261,16 +271,93 @@ sdbusplus::async::task<void> USBDeviceEnumerator::run()
     }
     while (!ctx.stop_requested())
     {
-        if (hotplugSupported)
+        if (!libusbBell)
         {
-            libusb_handle_events(usbCtx);
-        }
-        else
-        {
-            scanDeviceList();
+            processLibusbEvents();
+            co_await sdbusplus::async::sleep_for(ctx, rescanInterval);
+            continue;
         }
 
-        co_await sdbusplus::async::sleep_for(ctx, rescanInterval);
+        co_await libusbBell->next();
+        processLibusbEvents();
     }
     co_return;
+}
+
+void USBDeviceEnumerator::pollfdAddedCallback(int fd, short /* events */,
+                                              void* userData)
+{
+    auto* self = static_cast<USBDeviceEnumerator*>(userData);
+    if (self)
+    {
+        self->addWatcher(fd);
+    }
+}
+
+void USBDeviceEnumerator::pollfdRemovedCallback(int fd, void* userData)
+{
+    auto* self = static_cast<USBDeviceEnumerator*>(userData);
+    if (self)
+    {
+        self->removeWatcher(fd);
+    }
+}
+
+void USBDeviceEnumerator::addWatcher(int fd)
+{
+    if (libusbBell)
+    {
+        return;
+    }
+    try
+    {
+        libusbBell = std::make_unique<sdbusplus::async::fdio>(ctx, fd);
+        libusbBellFd = fd;
+    }
+    catch (const std::exception& e)
+    {
+        lg2::error(
+            "USBDeviceEnumerator: Failed to create fdio for FD {FD}: {ERROR}",
+            "FD", fd, "ERROR", e.what());
+    }
+}
+
+void USBDeviceEnumerator::removeWatcher(int fd)
+{
+    if (fd != libusbBellFd)
+    {
+        return;
+    }
+    libusbBell.reset();
+    libusbBellFd = -1;
+    attachFirstPollfd();
+}
+
+void USBDeviceEnumerator::attachFirstPollfd(bool warnIfNull)
+{
+    const libusb_pollfd** pfds = libusb_get_pollfds(usbCtx);
+    if (!pfds)
+    {
+        if (warnIfNull)
+        {
+            lg2::warning(
+                "USBDeviceEnumerator: libusb_get_pollfds returned null");
+        }
+        return;
+    }
+    if (*pfds != nullptr)
+    {
+        addWatcher((*pfds)->fd);
+    }
+    libusb_free_pollfds(pfds);
+}
+
+void USBDeviceEnumerator::processLibusbEvents()
+{
+    struct timeval tv = {0, 0};
+    libusb_handle_events_timeout_completed(usbCtx, &tv, nullptr);
+    if (!hotplugSupported)
+    {
+        scanDeviceList();
+    }
 }

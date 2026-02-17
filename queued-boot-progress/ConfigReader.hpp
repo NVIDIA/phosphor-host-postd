@@ -100,7 +100,7 @@ class ConfigReader
                 case 'b':
                     try
                     {
-                        auto busId = std::stoi(optarg);
+                        auto busId = std::stoi(optarg, nullptr, 0);
                         if (busId < 0 || busId > 255)
                         {
                             lg2::error("Invalid i2c bus: {BUS}", "BUS", optarg);
@@ -117,7 +117,7 @@ class ConfigReader
                 case 'a':
                     try
                     {
-                        auto addrId = std::stoi(optarg);
+                        auto addrId = std::stoi(optarg, nullptr, 0);
                         if (addrId < 0 || addrId > 255)
                         {
                             lg2::error("Invalid i2c address: {ADDRESS}",

@@ -44,7 +44,9 @@ bool USBPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
 {
     if (!devHandle)
     {
-        lg2::debug("USB device not opened");
+        lg2::debug("USB device not opened: bus {BUS}, addr {ADDR}", "BUS",
+                   static_cast<int>(bus), "ADDR",
+                   static_cast<int>(deviceAddress));
         return false;
     }
     static constexpr uint8_t readLength = 4;

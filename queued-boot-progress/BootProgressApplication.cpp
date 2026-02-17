@@ -18,22 +18,16 @@
 #include "BootProgressApplication.hpp"
 
 #include <phosphor-logging/lg2.hpp>
-#include <sdbusplus/bus/match.hpp>
 
 #include <variant>
-
-namespace rulesInterface = sdbusplus::bus::match::rules;
 
 sdbusplus::async::task<void> Application::getInitialOsState()
 {
     try
     {
-        auto osStateProxy = sdbusplus::async::proxy()
-                                .service(dbusHostStateService)
-                                .path(dbusHostStatePath)
-                                .interface(dbusOSStatusInterface);
-        currentOSState = co_await osStateProxy.get_property<std::string>(
-            ctx, "OperatingSystemState");
+        currentOSState = co_await dbusAccess->getProperty(
+            dbusHostStateService.data(), dbusHostStatePath.data(),
+            dbusOSStatusInterface.data(), "OperatingSystemState");
         lg2::info("Initial OS state: {STATE}", "STATE", currentOSState);
     }
     catch (const std::exception& e)
@@ -45,25 +39,21 @@ sdbusplus::async::task<void> Application::getInitialOsState()
 
 sdbusplus::async::task<void> Application::monitorOSState()
 {
-    auto osStateMatch = sdbusplus::async::match(
-        ctx, rulesInterface::propertiesChanged(dbusHostStatePath,
-                                               dbusOSStatusInterface));
     while (!ctx.stop_requested())
     {
         try
         {
-            auto [iface, changed, invalidated] = co_await osStateMatch.next<
-                std::string,
-                std::map<std::string,
-                         std::variant<std::string, int32_t, uint32_t, bool>>,
-                std::vector<std::string>>();
+            PropertiesChangedTuple result =
+                co_await dbusAccess->waitForPropertiesChanged(
+                    std::string(dbusHostStatePath),
+                    std::string(dbusOSStatusInterface));
+            const auto& changed = std::get<1>(result);
             auto it = changed.find("OperatingSystemState");
             if (it != changed.end())
             {
-                currentOSState = std::get<std::string>(it->second);
                 lg2::info("OS state changed to: {STATE}", "STATE",
-                          currentOSState);
-                onOSStateChange();
+                          std::get<std::string>(it->second));
+                onOSStateChange(std::get<std::string>(it->second));
             }
         }
         catch (const std::exception& e)
@@ -77,13 +67,9 @@ sdbusplus::async::task<void> Application::getInitialHostPowerState()
 {
     try
     {
-        auto hostStateProxy = sdbusplus::async::proxy()
-                                  .service(dbusHostStateService)
-                                  .path(dbusHostStatePath)
-                                  .interface(dbusHostStateInterface);
-        currentHostPowerState =
-            co_await hostStateProxy.get_property<std::string>(
-                ctx, "CurrentHostState");
+        currentHostPowerState = co_await dbusAccess->getProperty(
+            dbusHostStateService.data(), dbusHostStatePath.data(),
+            dbusHostStateInterface.data(), "CurrentHostState");
         lg2::info("Initial host power state: {STATE}", "STATE",
                   currentHostPowerState);
     }
@@ -98,25 +84,21 @@ sdbusplus::async::task<void> Application::getInitialHostPowerState()
 
 sdbusplus::async::task<void> Application::monitorHostPowerState()
 {
-    auto powerStateMatch = sdbusplus::async::match(
-        ctx, rulesInterface::propertiesChanged(dbusHostStatePath,
-                                               dbusHostStateInterface));
     while (!ctx.stop_requested())
     {
         try
         {
-            auto [iface, changed, invalidated] = co_await powerStateMatch.next<
-                std::string,
-                std::map<std::string,
-                         std::variant<std::string, int32_t, uint32_t, bool>>,
-                std::vector<std::string>>();
+            PropertiesChangedTuple result =
+                co_await dbusAccess->waitForPropertiesChanged(
+                    std::string(dbusHostStatePath),
+                    std::string(dbusHostStateInterface));
+            const auto& changed = std::get<1>(result);
             auto it = changed.find("CurrentHostState");
             if (it != changed.end())
             {
-                currentHostPowerState = std::get<std::string>(it->second);
                 lg2::info("Host power state changed to: {STATE}", "STATE",
-                          currentHostPowerState);
-                onHostPowerStateChange();
+                          std::get<std::string>(it->second));
+                onHostPowerStateChange(std::get<std::string>(it->second));
             }
         }
         catch (const std::exception& e)
@@ -127,31 +109,27 @@ sdbusplus::async::task<void> Application::monitorHostPowerState()
     }
 }
 
-void Application::onOSStateChange()
+void Application::onOSStateChange(std::string newValue)
 {
+    currentOSState = std::move(newValue);
     updatePollInterval();
 }
 
 sdbusplus::async::task<void> Application::monitorBootProgress()
 {
-    auto bootProgressMatch = sdbusplus::async::match(
-        ctx, rulesInterface::propertiesChanged(dbusHostStatePath,
-                                               dbusBootProgressInterface));
     while (!ctx.stop_requested())
     {
         try
         {
-            auto [iface, changed, invalidated] =
-                co_await bootProgressMatch.next<
-                    std::string,
-                    std::map<std::string, std::variant<std::string, int32_t,
-                                                       uint32_t, bool>>,
-                    std::vector<std::string>>();
+            PropertiesChangedTuple result =
+                co_await dbusAccess->waitForPropertiesChanged(
+                    std::string(dbusHostStatePath),
+                    std::string(dbusBootProgressInterface));
+            const auto& changed = std::get<1>(result);
             auto it = changed.find("BootProgress");
             if (it != changed.end())
             {
-                currentBootProgress = std::get<std::string>(it->second);
-                onBootProgressChange();
+                onBootProgressChange(std::get<std::string>(it->second));
             }
         }
         catch (const std::exception& e)
@@ -166,13 +144,9 @@ sdbusplus::async::task<void> Application::getInitialBootProgress()
 {
     try
     {
-        auto bootProgressProxy = sdbusplus::async::proxy()
-                                     .service(dbusHostStateService)
-                                     .path(dbusHostStatePath)
-                                     .interface(dbusBootProgressInterface);
-        currentBootProgress =
-            co_await bootProgressProxy.get_property<std::string>(
-                ctx, "BootProgress");
+        currentBootProgress = co_await dbusAccess->getProperty(
+            dbusHostStateService.data(), dbusHostStatePath.data(),
+            dbusBootProgressInterface.data(), "BootProgress");
         lg2::info("Initial BootProgress: {BOOT_PROGRESS}", "BOOT_PROGRESS",
                   currentBootProgress);
     }
@@ -184,8 +158,9 @@ sdbusplus::async::task<void> Application::getInitialBootProgress()
     }
 }
 
-void Application::onBootProgressChange()
+void Application::onBootProgressChange(std::string newValue)
 {
+    currentBootProgress = std::move(newValue);
     updatePollInterval();
 }
 
@@ -223,8 +198,9 @@ void Application::updatePollInterval()
     bootProgressManager->updatePollStatus(true);
 }
 
-void Application::onHostPowerStateChange()
+void Application::onHostPowerStateChange(std::string newValue)
 {
+    currentHostPowerState = std::move(newValue);
     if (isHostPowerStateOff())
     {
         bootProgressManager->initIndices();
@@ -239,8 +215,10 @@ void Application::onHostPowerStateChange()
 
 Application::Application(
     sdbusplus::async::context& ctx, const Configuration& configuration,
-    std::shared_ptr<BootProgressManager> bootProgressManager) :
-    ctx(ctx), config(configuration), bootProgressManager(bootProgressManager)
+    std::shared_ptr<BootProgressManager> bootProgressManager,
+    std::shared_ptr<IDbusPropertyAccess> dbusAccess) :
+    ctx(ctx), dbusAccess(std::move(dbusAccess)), config(configuration),
+    bootProgressManager(bootProgressManager)
 {}
 
 sdbusplus::async::task<void> Application::initialize()

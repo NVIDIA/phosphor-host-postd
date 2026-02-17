@@ -31,8 +31,8 @@ static constexpr uint32_t cpu0CakExit = 0x70C1C089;
 static constexpr uint32_t cpu1CakExit = 0x71C1C089;
 
 CakBootProgressPublisher::CakBootProgressPublisher(
-    sdbusplus::async::context& ctx, size_t cakCpuCount) :
-    ctx(ctx), cakCpuCount(cakCpuCount)
+    sdbusplus::async::context& context, size_t cakCpuCount) :
+    ctx(context), cakCpuCount(cakCpuCount)
 {
     if (cakCpuCount == 0)
     {

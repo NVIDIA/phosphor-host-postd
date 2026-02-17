@@ -33,7 +33,6 @@ using RawInterfaceTest =
 namespace
 {
 
-// Fixture for testing class SbmrBootProgressTestReporter
 class SbmrBootProgressTestReporter : public ::testing::Test
 {
   protected:
@@ -82,9 +81,46 @@ TEST_F(SbmrBootProgressTestReporter, InvalidErrorToMonitor1)
     std::fclose(tmpf);
 
     auto filePaths = "/tmp/sbmrBootProgress.json";
-    // Verify exception thrown on invalid errorsToMonitor
     Json targetData = testReporter.parseJSONConfig(filePaths);
     EXPECT_EQ(targetData.is_discarded(), true);
+}
+
+TEST_F(SbmrBootProgressTestReporter, ParseEmptyObject)
+{
+    SbmrBootProgress testReporter;
+    const char* path = "/tmp/sbmrBootProgress_empty.json";
+    std::FILE* f = fopen(path, "w");
+    ASSERT_NE(f, nullptr);
+    std::fputs("{}", f);
+    std::fclose(f);
+
+    Json targetData = testReporter.parseJSONConfig(path);
+    EXPECT_FALSE(targetData.is_discarded());
+    EXPECT_TRUE(targetData.is_object());
+    EXPECT_TRUE(targetData.empty());
+}
+
+TEST_F(SbmrBootProgressTestReporter, ParseSingleKeyObject)
+{
+    SbmrBootProgress testReporter;
+    const char* path = "/tmp/sbmrBootProgress_single.json";
+    std::FILE* f = fopen(path, "w");
+    ASSERT_NE(f, nullptr);
+    std::fputs(R"({"0x01000000000007c0":"0x01000000000007c0"})", f);
+    std::fclose(f);
+
+    Json targetData = testReporter.parseJSONConfig(path);
+    EXPECT_FALSE(targetData.is_discarded());
+    EXPECT_NE(targetData.find("0x01000000000007c0"), targetData.end());
+    EXPECT_EQ(targetData["0x01000000000007c0"], "0x01000000000007c0");
+}
+
+TEST_F(SbmrBootProgressTestReporter, ParseNonExistentFileReturnsDiscarded)
+{
+    SbmrBootProgress testReporter;
+    Json targetData =
+        testReporter.parseJSONConfig("/nonexistent/sbmrBootProgress.json");
+    EXPECT_TRUE(targetData.is_discarded());
 }
 
 } // namespace

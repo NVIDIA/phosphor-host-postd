@@ -71,7 +71,8 @@ int main(int argc, char* argv[])
         ctx.spawn(deviceEnumerator->run());
     }
 
-    Application application(ctx, config, bootProgressManager);
+    Application application(ctx, config, bootProgressManager,
+                            makeDefaultDbusPropertyAccess(ctx));
     ctx.spawn(application.initialize());
 
     ctx.run();

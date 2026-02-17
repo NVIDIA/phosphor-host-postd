@@ -218,6 +218,11 @@ sdbusplus::async::task<void> BootProgressPoller::pollQueues()
         if (pollStatus)
         {
             auto currentDevice = device;
+            if (!currentDevice)
+            {
+                co_await sdbusplus::async::sleep_for(ctx, pollInterval);
+                continue;
+            }
             bool anyReadSucceeded = false;
             std::vector<std::pair<uint32_t, uint32_t>> entries;
 

@@ -17,6 +17,8 @@
 
 #include "BootProgressPublisher.hpp"
 
+#include "dbus_utils.hpp"
+
 #include <phosphor-logging/lg2.hpp>
 
 #include <format>
@@ -238,14 +240,11 @@ sdbusplus::async::task<void> BootProgressPublisher::updateBootProgressProperty(
     std::string stage =
         "xyz.openbmc_project.State.Boot.Progress.ProgressStages." +
         progressStage;
-    auto bootProgressProxy = sdbusplus::async::proxy()
-                                 .service(bootProgressService)
-                                 .path(bootProgressObject)
-                                 .interface(bootProgressInf);
 
     try
     {
-        co_await bootProgressProxy.set_property(ctx, "BootProgress", stage);
+        co_await setDbusProperty(ctx, bootProgressService, bootProgressObject,
+                                 bootProgressInf, "BootProgress", stage);
     }
     catch (const std::exception& e)
     {
@@ -260,15 +259,11 @@ sdbusplus::async::task<void>
     BootProgressPublisher::updateBootProgressLastUpdateProperty(
         uint64_t bootProgressLastUpdate)
 {
-    auto bootProgressProxy = sdbusplus::async::proxy()
-                                 .service(bootProgressService)
-                                 .path(bootProgressObject)
-                                 .interface(bootProgressInf);
-
     try
     {
-        co_await bootProgressProxy.set_property(ctx, "BootProgressLastUpdate",
-                                                bootProgressLastUpdate);
+        co_await setDbusProperty(ctx, bootProgressService, bootProgressObject,
+                                 bootProgressInf, "BootProgressLastUpdate",
+                                 bootProgressLastUpdate);
     }
     catch (const std::exception& e)
     {
@@ -283,15 +278,11 @@ sdbusplus::async::task<void>
     BootProgressPublisher::updateBootProgressOemProperty(
         const std::string& oemLastState)
 {
-    auto bootProgressProxy = sdbusplus::async::proxy()
-                                 .service(bootProgressService)
-                                 .path(bootProgressObject)
-                                 .interface(bootProgressInf);
-
     try
     {
-        co_await bootProgressProxy.set_property(ctx, "BootProgressOem",
-                                                oemLastState);
+        co_await setDbusProperty(ctx, bootProgressService, bootProgressObject,
+                                 bootProgressInf, "BootProgressOem",
+                                 oemLastState);
     }
     catch (const std::exception& e)
     {

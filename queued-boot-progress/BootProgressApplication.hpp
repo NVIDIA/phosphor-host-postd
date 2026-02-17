@@ -21,11 +21,13 @@
 #include "BootProgressPoller.hpp"
 #include "BootProgressPublisher.hpp"
 #include "ConfigReader.hpp"
+#include "dbus_utils.hpp"
 
 #include <sdbusplus/async.hpp>
 
 #include <chrono>
 #include <memory>
+#include <string>
 #include <string_view>
 
 constexpr std::string_view osStateBootComplete =
@@ -60,9 +62,16 @@ class Application
 {
   public:
     Application(sdbusplus::async::context& ctx, const Configuration& config,
-                std::shared_ptr<BootProgressManager> bootProgressManager);
+                std::shared_ptr<BootProgressManager> bootProgressManager,
+                std::shared_ptr<IDbusPropertyAccess> dbusAccess);
 
     sdbusplus::async::task<void> initialize();
+
+  protected:
+    void onOSStateChange(std::string newValue);
+    void onHostPowerStateChange(std::string newValue);
+    void onBootProgressChange(std::string newValue);
+    bool isHostPowerStateOff() const;
 
   private:
     sdbusplus::async::task<void> monitorOSState();
@@ -71,13 +80,13 @@ class Application
     sdbusplus::async::task<void> getInitialHostPowerState();
     sdbusplus::async::task<void> monitorBootProgress();
     sdbusplus::async::task<void> getInitialBootProgress();
-    void onHostPowerStateChange();
-    void onOSStateChange();
-    void onBootProgressChange();
     void updatePollInterval();
-    bool isHostPowerStateOff() const;
 
+  protected:
     sdbusplus::async::context& ctx;
+
+  private:
+    std::shared_ptr<IDbusPropertyAccess> dbusAccess;
     Configuration config;
     std::string currentOSState;
     std::string currentHostPowerState;

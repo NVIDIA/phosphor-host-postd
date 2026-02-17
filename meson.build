@@ -16,8 +16,27 @@ sdbusplus = dependency('sdbusplus')
 sdeventplus = dependency('sdeventplus')
 systemd = dependency('systemd')
 phosphor_logging = dependency('phosphor-logging')
-libgpiodcxx = dependency('libgpiodcxx')
-libusb = dependency('libusb-1.0')
+# Prefer system libgpiodcxx; fall back to subproject with C++ bindings enabled (for entire-repo coverage).
+libgpiodcxx = dependency('libgpiodcxx', required: false)
+if not libgpiodcxx.found()
+    libgpiod_sp = subproject('libgpiod', default_options: ['bindings=cxx'])
+    libgpiodcxx = libgpiod_sp.get_variable('gpiodcxx_dep')
+endif
+# Prefer system libusb-1.0; fall back to subproject with relaxed flags (libusb 1.0.29 fails under -Werror).
+# libusb.h uses C flexible arrays; -Wno-pedantic needed for any C++ that includes it (system or subproject).
+libusb_cpp_args = ['-Wno-pedantic']
+libusb = dependency('libusb-1.0', required: false)
+if not libusb.found()
+    libusb_sp = subproject(
+        'libusb1',
+        default_options: [
+            'warning_level=0',
+            'werror=false',
+            'c_args=-Wno-error -Wno-pedantic',
+        ],
+    )
+    libusb = libusb_sp.get_variable('libusb_dep')
+endif
 
 conf_data = configuration_data()
 conf_data.set('bindir', get_option('prefix') / get_option('bindir'))
@@ -46,6 +65,7 @@ elif get_option('queued-boot-progress').allowed()
     snoopd_src += 'queued-boot-progress/BootProgressPoller.cpp'
     snoopd_src += 'queued-boot-progress/BootProgressMain.cpp'
     snoopd_src += 'queued-boot-progress/BootProgressManager.cpp'
+    snoopd_src += 'queued-boot-progress/dbus_utils.cpp'
     snoopd_src += 'queued-boot-progress/BootProgressApplication.cpp'
 
     transport = get_option('transport-interface')
@@ -109,7 +129,13 @@ if get_option('queued-boot-progress').allowed()
     deps += libusb
 endif
 
-executable('snoopd', snoopd_src, dependencies: deps, install: true)
+executable(
+    'snoopd',
+    snoopd_src,
+    dependencies: deps,
+    cpp_args: libusb_cpp_args,
+    install: true,
+)
 
 executable(
     'snooper',
@@ -144,4 +170,43 @@ install_headers(
 
 if build_tests.allowed()
     subdir('test')
+endif
+
+# gcovr-based coverage targets (use gcovr.cfg for exclusions)
+if get_option('b_coverage')
+    _src = meson.project_source_root()
+    _bld = meson.project_build_root()
+    _coveragedir = join_paths(_bld, 'meson-logs', 'coveragereport')
+    run_command('mkdir', '-p', _coveragedir, check: false)
+    _gcovr_cfg = join_paths(_src, 'gcovr.cfg')
+    _coverage_html_cmd = [
+        find_program('gcovr'),
+        '-r',
+        _src,
+        '--config',
+        _gcovr_cfg,
+        '--html',
+        '--html-details',
+        '-o',
+        join_paths(_coveragedir, 'index.html'),
+    ]
+    run_target('coverage-gcovr', command: _coverage_html_cmd)
+    run_target('coverage-html-gcovr', command: _coverage_html_cmd)
+    run_target(
+        'coverage-txt',
+        command: [
+            find_program('gcovr'),
+            '-r',
+            _src,
+            '--config',
+            _gcovr_cfg,
+            '--txt',
+            '-o',
+            join_paths(_coveragedir, 'coverage.txt'),
+        ],
+    )
+    run_target(
+        'coverage-validate',
+        command: [find_program('ninja'), '-C', _bld, 'test', 'coverage-gcovr'],
+    )
 endif

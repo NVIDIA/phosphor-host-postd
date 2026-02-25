@@ -10,12 +10,6 @@ option(
     value: 1,
 )
 option(
-    'cak-cpu-count',
-    description: 'Number of CPUs emitting CAK post codes (1 or 2).',
-    type: 'integer',
-    value: 0,
-)
-option(
     'host-instances',
     description: 'obmc instances of the host',
     type: 'string',

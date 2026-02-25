@@ -19,9 +19,6 @@
 
 #include <phosphor-logging/lg2.hpp>
 
-#ifdef CAK_CPU_COUNT
-#include <algorithm>
-#endif
 #include <format>
 
 constexpr auto bootProgressOem = "OEM";
@@ -54,22 +51,6 @@ constexpr auto efiSwBsPcExitBootServices = 0x1019;
 constexpr auto bootProgressService = "xyz.openbmc_project.State.Host";
 constexpr auto bootProgressObject = "/xyz/openbmc_project/state/host0";
 constexpr auto bootProgressInf = "xyz.openbmc_project.State.Boot.Progress";
-#ifdef CAK_CPU_COUNT
-constexpr auto cakBootProgressObject = "/xyz/openbmc_project/state/boot/cak0";
-#endif
-
-#ifdef CAK_CPU_COUNT
-static constexpr size_t cakCpuCount = CAK_CPU_COUNT;
-static_assert(CAK_CPU_COUNT >= 1 && CAK_CPU_COUNT <= 2,
-              "CAK_CPU_COUNT must be 1 or 2");
-
-static constexpr uint32_t cpu0CakEnter = 0x70C1C08A;
-static constexpr uint32_t cpu1CakEnter = 0x71C1C08A;
-static constexpr uint32_t cpu0CakExit = 0x70C1C089;
-static constexpr uint32_t cpu1CakExit = 0x71C1C089;
-static constexpr uint32_t cpu0BootStart = 0x70C0C001;
-static constexpr uint32_t cpu1BootStart = 0x71C0C001;
-#endif
 
 BootProgressPublisher::BootProgressPublisher(sdbusplus::async::context& ctx,
                                              const std::string& snoopDbus,
@@ -78,17 +59,6 @@ BootProgressPublisher::BootProgressPublisher(sdbusplus::async::context& ctx,
 {
     this->emit_object_added();
     ctx.get_bus().request_name(snoopDbus.c_str());
-
-#ifdef CAK_CPU_COUNT
-    cakBootProgressObj = std::make_unique<BootProgressObject>(
-        ctx.get_bus(), cakBootProgressObject,
-        BootProgressObject::action::emit_object_added);
-    cakBootProgressObj->bootProgress(
-        BootProgressInterface::ProgressStages::OEM);
-    cakCpuStages.assign(cakCpuCount, CakStage::EarlyBoot);
-    cakEnterSeen = false;
-    publishCakStageIfChanged("EarlyBoot");
-#endif
 }
 
 std::vector<uint8_t> bytesToVector(uint32_t value)
@@ -122,9 +92,6 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
             this->value(std::make_tuple(code, timeStampOffset));
 
             latestOem = std::format("0x{:08X}", progressCode);
-#ifdef CAK_CPU_COUNT
-            updateCakState(progressCode);
-#endif
 
             /* Stage arbitration logic:
              * - Non-OEM stages (PCIInit, SystemInitComplete, etc.) take
@@ -379,148 +346,4 @@ void BootProgressPublisher::resetCachedState()
     lastPublishedOem.clear();
     lastPublishedTimestamp = 0;
     lastDbusUpdateTime = std::chrono::steady_clock::time_point{};
-
-#ifdef CAK_CPU_COUNT
-    cakCpuStages.assign(cakCpuCount, CakStage::EarlyBoot);
-    lastPublishedCakStage.clear();
-    cakEnterSeen = false;
-    publishCakStageIfChanged("EarlyBoot");
-#endif
-}
-
-#ifdef CAK_CPU_COUNT
-void BootProgressPublisher::updateCakState(const uint32_t& progressCode)
-{
-    size_t cpuIndex = 0;
-    CakStage newStage = CakStage::EarlyBoot;
-
-    // Handle boot start codes - only reset the specific CPU that sent it
-    if (progressCode == cpu0BootStart)
-    {
-        // Only reset CPU0's state, not CPU1's
-        if (cakCpuStages.size() > 0)
-        {
-            cakCpuStages[0] = CakStage::EarlyBoot;
-        }
-        // Update published stage based on all CPU states
-        const bool allComplete = std::all_of(
-            cakCpuStages.begin(), cakCpuStages.end(),
-            [](CakStage stage) { return stage == CakStage::Complete; });
-        const bool allWaiting = std::all_of(
-            cakCpuStages.begin(), cakCpuStages.end(),
-            [](CakStage stage) { return stage == CakStage::Waiting; });
-
-        if (allComplete)
-        {
-            publishCakStageIfChanged("Complete");
-        }
-        else if (allWaiting)
-        {
-            publishCakStageIfChanged("Waiting");
-        }
-        else
-        {
-            publishCakStageIfChanged("EarlyBoot");
-        }
-        return;
-    }
-    else if (progressCode == cpu1BootStart)
-    {
-        // Only reset CPU1's state, not CPU0's
-        if (cakCpuStages.size() > 1)
-        {
-            cakCpuStages[1] = CakStage::EarlyBoot;
-        }
-        // Update published stage based on all CPU states
-        const bool allComplete = std::all_of(
-            cakCpuStages.begin(), cakCpuStages.end(),
-            [](CakStage stage) { return stage == CakStage::Complete; });
-        const bool allWaiting = std::all_of(
-            cakCpuStages.begin(), cakCpuStages.end(),
-            [](CakStage stage) { return stage == CakStage::Waiting; });
-
-        if (allComplete)
-        {
-            publishCakStageIfChanged("Complete");
-        }
-        else if (allWaiting)
-        {
-            publishCakStageIfChanged("Waiting");
-        }
-        else
-        {
-            publishCakStageIfChanged("EarlyBoot");
-        }
-        return;
-    }
-
-    if (progressCode == cpu0CakEnter)
-    {
-        cpuIndex = 0;
-        newStage = CakStage::Waiting;
-        cakEnterSeen = true;
-    }
-    else if (progressCode == cpu0CakExit)
-    {
-        cpuIndex = 0;
-        newStage = CakStage::Complete;
-    }
-    else if (progressCode == cpu1CakEnter)
-    {
-        cpuIndex = 1;
-        newStage = CakStage::Waiting;
-        cakEnterSeen = true;
-    }
-    else if (progressCode == cpu1CakExit)
-    {
-        cpuIndex = 1;
-        newStage = CakStage::Complete;
-    }
-    else
-    {
-        return;
-    }
-
-    if (cpuIndex >= cakCpuStages.size())
-    {
-        return;
-    }
-
-    cakCpuStages[cpuIndex] = newStage;
-
-    const bool allComplete =
-        std::all_of(cakCpuStages.begin(), cakCpuStages.end(),
-                    [](CakStage stage) { return stage == CakStage::Complete; });
-    const bool allWaiting =
-        std::all_of(cakCpuStages.begin(), cakCpuStages.end(),
-                    [](CakStage stage) { return stage == CakStage::Waiting; });
-
-    if (allComplete)
-    {
-        publishCakStageIfChanged("Complete");
-    }
-    else if (allWaiting)
-    {
-        publishCakStageIfChanged("Waiting");
-    }
-    else
-    {
-        publishCakStageIfChanged("EarlyBoot");
-    }
-#endif
-}
-
-#ifdef CAK_CPU_COUNT
-void BootProgressPublisher::publishCakStageIfChanged(const std::string& stage)
-{
-    if (!cakBootProgressObj || stage == lastPublishedCakStage)
-    {
-        return;
-    }
-
-    cakBootProgressObj->bootProgress(
-        BootProgressInterface::ProgressStages::OEM);
-    cakBootProgressObj->bootProgressOem(stage);
-    lastPublishedCakStage = stage;
-#endif
 }

@@ -28,7 +28,8 @@
 #include <optional>
 #include <vector>
 
-class BootProgressPoller
+class BootProgressPoller :
+    public std::enable_shared_from_this<BootProgressPoller>
 {
   public:
     BootProgressPoller(sdbusplus::async::context& ctx,
@@ -42,7 +43,7 @@ class BootProgressPoller
 
     void updatePollStatus(bool pollStatus);
 
-    bool isPolling() const;
+    void stop();
 
   private:
     sdbusplus::async::context& ctx;
@@ -51,6 +52,7 @@ class BootProgressPoller
     int socketId;
     onBootProgressDataCallback processBootProgressData = nullptr;
     bool pollStatus;
+    bool stopped = false;
     uint32_t consecutiveFailures = 0;
 
     static constexpr int numberOfQueues = 2;
@@ -67,11 +69,13 @@ class BootProgressPoller
 
     sdbusplus::async::task<void> pollQueues();
     sdbusplus::async::task<std::optional<uint32_t>> readRegister(
-        uint32_t regAddr);
+        uint32_t regAddr, const std::shared_ptr<PollingDevice>& dev);
     sdbusplus::async::task<
         std::optional<std::vector<std::pair<uint32_t, uint32_t>>>>
-        processQueue(int queueNumber);
-    sdbusplus::async::task<std::optional<uint32_t>> getQbaseIdx(int qnum);
+        processQueue(int queueNumber,
+                     const std::shared_ptr<PollingDevice>& dev);
+    sdbusplus::async::task<std::optional<uint32_t>> getQbaseIdx(
+        int qnum, const std::shared_ptr<PollingDevice>& dev);
     void parseQueueIndices(uint32_t regVal, uint32_t& start, uint32_t& end,
                            uint32_t& size);
     std::chrono::milliseconds calculateSleepDuration() const;

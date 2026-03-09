@@ -50,38 +50,30 @@ void BootProgressManager::onBootProgressData(
     it->second.buffer.insert(it->second.buffer.end(),
                              bootProgressEntries.begin(),
                              bootProgressEntries.end());
-    if (publisher && isAllSocketDataReady())
+    if (publisher)
     {
         tryPublish();
     }
 }
 
-void BootProgressManager::onDeviceAdded(TransportInterface transportInterface,
+void BootProgressManager::onDeviceAdded(std::shared_ptr<PollingDevice> device,
+                                        TransportInterface transportInterface,
                                         const uint8_t& bus,
-                                        const uint8_t& address, int socketId)
+                                        const uint8_t& address)
 {
-    // Check if poller already exists for this socketId
-    auto existingIt = socketDataMap.find(socketId);
-    if (existingIt != socketDataMap.end())
+    DeviceIdentity identity{transportInterface, bus, address};
+    if (!device)
     {
-        lg2::warning(
-            "Poller already exists for socketId {SOCKET_ID}, skipping device addition",
-            "SOCKET_ID", socketId);
-        existingIt->second.poller->updatePollStatus(true);
+        lg2::error("onDeviceAdded: device is null");
         return;
     }
 
-    auto device = getPollingDevice(transportInterface, bus, address);
-    if (!device)
-    {
-        lg2::error("Failed to get polling device");
-        return;
-    }
+    int socketId = nextSocketId++;
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, device, pollInterval, socketId,
+        ctx, std::move(device), pollInterval, socketId,
         std::bind(&BootProgressManager::onBootProgressData, this,
                   std::placeholders::_1, std::placeholders::_2));
-    socketDataMap.emplace(socketId, SocketData(poller));
+    socketDataMap.emplace(socketId, SocketData(identity, poller));
     lg2::info(
         "Device added: transportInterface {TRANSPORT_INTERFACE}, bus {BUS}, address {ADDRESS}, socketId {SOCKET_ID}",
         "TRANSPORT_INTERFACE", static_cast<int>(transportInterface), "BUS", bus,
@@ -90,31 +82,32 @@ void BootProgressManager::onDeviceAdded(TransportInterface transportInterface,
 
 void BootProgressManager::onDeviceRemoved(TransportInterface transportInterface,
                                           const uint8_t& bus,
-                                          const uint8_t& address, int socketId)
+                                          const uint8_t& address)
 {
-    auto it = socketDataMap.find(socketId);
-    if (it == socketDataMap.end())
+    DeviceIdentity identity{transportInterface, bus, address};
+    auto dataIt = std::find_if(socketDataMap.begin(), socketDataMap.end(),
+                               [&identity](const auto& pair) {
+                                   return pair.second.identity == identity;
+                               });
+    if (dataIt == socketDataMap.end())
     {
-        lg2::error("Socket data not found for socketId {SOCKET_ID}",
-                   "SOCKET_ID", socketId);
+        lg2::warning(
+            "Device not found for removal: transport {TRANSPORT}, bus {BUS}, address {ADDRESS}",
+            "TRANSPORT", static_cast<int>(transportInterface), "BUS", bus,
+            "ADDRESS", address);
         return;
     }
-    it->second.poller->updatePollStatus(false);
     lg2::info(
         "Device removed: transportInterface {TRANSPORT_INTERFACE}, bus {BUS}, address {ADDRESS}, socketId {SOCKET_ID}",
         "TRANSPORT_INTERFACE", static_cast<int>(transportInterface), "BUS", bus,
-        "ADDRESS", address, "SOCKET_ID", socketId);
+        "ADDRESS", address, "SOCKET_ID", dataIt->first);
 
-    /* Only reset when all USB devices are removed (no pollers still active) */
-    if (transportInterface == TransportInterface::USB)
+    dataIt->second.poller->stop();
+    socketDataMap.erase(dataIt);
+
+    if (transportInterface == TransportInterface::USB && socketDataMap.empty())
     {
-        bool anyStillPolling = std::any_of(
-            socketDataMap.begin(), socketDataMap.end(),
-            [](const auto& p) { return p.second.poller->isPolling(); });
-        if (!anyStillPolling)
-        {
-            resetPublisherCachedState();
-        }
+        resetPublisherCachedState();
     }
 }
 
@@ -142,18 +135,6 @@ void BootProgressManager::initIndices()
     {
         socketData.poller->initIndices();
     }
-}
-
-bool BootProgressManager::isAllSocketDataReady()
-{
-    return std::all_of(socketDataMap.begin(), socketDataMap.end(),
-                       [](const auto& pair) {
-                           // Consider socket data ready if:
-                           // 1. Buffer has data
-                           // 2. Poller is not actively polling (device removed)
-                           return !pair.second.buffer.empty() ||
-                                  !pair.second.poller->isPolling();
-                       });
 }
 
 void BootProgressManager::aggregateAndSortAllSocketData()

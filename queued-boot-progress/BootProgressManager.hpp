@@ -28,12 +28,28 @@
 #include <unordered_map>
 #include <vector>
 
+struct DeviceIdentity
+{
+    TransportInterface transport;
+    uint8_t bus;
+    uint8_t address;
+    bool operator==(const DeviceIdentity& other) const
+    {
+        return transport == other.transport && bus == other.bus &&
+               address == other.address;
+    }
+};
+
 struct SocketData
 {
+    DeviceIdentity identity;
     std::shared_ptr<BootProgressPoller> poller;
     std::vector<std::pair<uint32_t, uint32_t>> buffer;
     SocketData() = default;
-    SocketData(std::shared_ptr<BootProgressPoller> poller) : poller(poller) {}
+    SocketData(DeviceIdentity identity,
+               std::shared_ptr<BootProgressPoller> poller) :
+        identity(identity), poller(poller)
+    {}
 };
 
 class BootProgressManager
@@ -47,13 +63,12 @@ class BootProgressManager
         int socketId,
         std::vector<std::pair<uint32_t, uint32_t>> bootProgressEntries);
 
-    void onDeviceAdded(TransportInterface transportInterface,
-                       const uint8_t& bus, const uint8_t& address,
-                       int socketId);
+    void onDeviceAdded(std::shared_ptr<PollingDevice> device,
+                       TransportInterface transportInterface,
+                       const uint8_t& bus, const uint8_t& address);
 
     void onDeviceRemoved(TransportInterface transportInterface,
-                         const uint8_t& bus, const uint8_t& address,
-                         int socketId);
+                         const uint8_t& bus, const uint8_t& address);
 
     void updatePollInterval(std::chrono::milliseconds newPollInterval);
 
@@ -68,9 +83,9 @@ class BootProgressManager
     std::shared_ptr<BootProgressPublisher> publisher;
     std::chrono::milliseconds pollInterval;
     std::unordered_map<int, SocketData> socketDataMap;
+    int nextSocketId = 0;
     std::vector<std::pair<uint32_t, uint32_t>> allSocketProgressEntries;
 
-    bool isAllSocketDataReady();
     void aggregateAndSortAllSocketData();
     sdbusplus::async::task<void> periodicPublishCheck();
     void tryPublish();

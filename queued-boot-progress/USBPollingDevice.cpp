@@ -15,79 +15,28 @@
  * limitations under the License.
  */
 
+#include "USBPollingDevice.hpp"
+
 #include "BootProgressManager.hpp"
-#include "PollingDevice.hpp"
 
 #include <sys/time.h>
 
 #include <phosphor-logging/lg2.hpp>
 
 #include <format>
+#include <functional>
 
-USBPollingDevice::USBPollingDevice(const uint8_t& bus,
-                                   const uint8_t& deviceAddress) :
-    bus(bus), deviceAddress(deviceAddress), ctx(nullptr), devHandle(nullptr)
-{
-    if (libusb_init(&ctx) < 0)
-    {
-        lg2::error("USBPollingDevice: Failed to initialize libusb");
-        ctx = nullptr;
-        return;
-    }
-    libusb_device** deviceList = nullptr;
-    ssize_t count = libusb_get_device_list(ctx, &deviceList);
-    if (count < 0)
-    {
-        lg2::error("USBPollingDevice: Failed to get USB device list");
-        libusb_exit(ctx);
-        ctx = nullptr;
-        return;
-    }
-    libusb_device* device = nullptr;
-    bool found = false;
-    for (ssize_t i = 0; i < count; ++i)
-    {
-        device = deviceList[i];
-        libusb_device_descriptor desc;
-        if (libusb_get_device_descriptor(device, &desc) == 0 &&
-            libusb_get_bus_number(device) == bus &&
-            libusb_get_device_address(device) == deviceAddress)
-        {
-            found = true;
-            break;
-        }
-    }
-    if (!found)
-    {
-        lg2::error(
-            "USBPollingDevice: No USB device found with bus {BUS} and address {ADDRESS}",
-            "BUS", this->bus, "ADDRESS", this->deviceAddress);
-        libusb_free_device_list(deviceList, 1);
-        libusb_exit(ctx);
-        ctx = nullptr;
-        return;
-    }
-    if (libusb_open(device, &devHandle) < 0)
-    {
-        lg2::error("USBPollingDevice: Failed to open USB device");
-        libusb_free_device_list(deviceList, 1);
-        libusb_exit(ctx);
-        ctx = nullptr;
-        return;
-    }
-    libusb_free_device_list(deviceList, 1);
-}
+USBPollingDevice::USBPollingDevice(libusb_device_handle* handle, uint8_t busNum,
+                                   uint8_t deviceAddr) :
+    bus(busNum), deviceAddress(deviceAddr), devHandle(handle)
+{}
 
 USBPollingDevice::~USBPollingDevice()
 {
     if (devHandle)
     {
         libusb_close(devHandle);
-    }
-    if (ctx)
-    {
-        libusb_exit(ctx);
-        ctx = nullptr;
+        devHandle = nullptr;
     }
 }
 
@@ -132,15 +81,18 @@ USBDeviceEnumerator::USBDeviceEnumerator(
     sdbusplus::async::context& ctx, std::shared_ptr<BootProgressManager> mgr,
     uint16_t vendorId, uint16_t productId,
     std::chrono::seconds rescanInterval) :
-    PollingDeviceEnumerator(ctx, mgr), vendorId(vendorId), productId(productId),
-    rescanInterval(rescanInterval)
+    PollingDeviceEnumerator(
+        ctx, std::bind_front(&BootProgressManager::onDeviceAdded, mgr),
+        std::bind_front(&BootProgressManager::onDeviceRemoved, mgr)),
+    vendorId(vendorId), productId(productId), rescanInterval(rescanInterval)
 {
-    if (libusb_init(&usbCtx) < 0)
+    libusb_context* raw = nullptr;
+    if (libusb_init(&raw) < 0)
     {
         lg2::debug("USBDeviceEnumerator: failed to init libusb");
-        usbCtx = nullptr;
         return;
     }
+    usbCtx.reset(raw);
     if (!libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG))
     {
         lg2::debug("USBDeviceEnumerator: hotplug not supported");
@@ -149,7 +101,7 @@ USBDeviceEnumerator::USBDeviceEnumerator(
     }
     hotplugSupported = true;
     int rc = libusb_hotplug_register_callback(
-        usbCtx,
+        usbCtx.get(),
         (libusb_hotplug_event)(LIBUSB_HOTPLUG_EVENT_DEVICE_ARRIVED |
                                LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT),
         (libusb_hotplug_flag)0, vendorId, productId, LIBUSB_HOTPLUG_MATCH_ANY,
@@ -160,23 +112,23 @@ USBDeviceEnumerator::USBDeviceEnumerator(
         return;
     }
     scanDeviceList();
-    libusb_set_pollfd_notifiers(usbCtx, pollfdAddedCallback,
+    libusb_set_pollfd_notifiers(usbCtx.get(), pollfdAddedCallback,
                                 pollfdRemovedCallback, this);
     attachFirstPollfd(true);
 }
 
 USBDeviceEnumerator::~USBDeviceEnumerator()
 {
-    if (cbHandle)
+    if (cbHandle && usbCtx)
     {
-        libusb_hotplug_deregister_callback(usbCtx, cbHandle);
+        libusb_hotplug_deregister_callback(usbCtx.get(), cbHandle);
+        cbHandle = 0;
     }
     if (usbCtx)
     {
-        libusb_set_pollfd_notifiers(usbCtx, nullptr, nullptr, nullptr);
+        libusb_set_pollfd_notifiers(usbCtx.get(), nullptr, nullptr, nullptr);
         libusbBell.reset();
         libusbBellFd = -1;
-        libusb_exit(usbCtx);
     }
 }
 
@@ -211,30 +163,44 @@ void USBDeviceEnumerator::handleHotplug(libusb_device* dev,
     {
         lg2::info("USB device arrived: bus {BUS}, addr {ADDR}", "BUS",
                   static_cast<int>(bus), "ADDR", static_cast<int>(addr));
-        int socketId = addDeviceAndGetSocketId(bus, addr);
-        manager->onDeviceAdded(TransportInterface::USB, bus, addr, socketId);
+        tryAddDevice(dev);
     }
     else if (event == LIBUSB_HOTPLUG_EVENT_DEVICE_LEFT)
     {
         lg2::info("USB device removed: bus {BUS}, addr {ADDR}", "BUS",
                   static_cast<int>(bus), "ADDR", static_cast<int>(addr));
-        int socketId = removeDeviceAndGetSocketId(bus, addr);
-        if (socketId == -1)
-        {
-            lg2::warning(
-                "USB device bus {BUS} address {ADDRESS} not found in device mapping",
-                "BUS", static_cast<int>(bus), "ADDRESS",
-                static_cast<int>(addr));
-            return;
-        }
-        manager->onDeviceRemoved(TransportInterface::USB, bus, addr, socketId);
+        notifyDeviceRemoved(TransportInterface::USB, bus, addr);
     }
+}
+
+void USBDeviceEnumerator::tryAddDevice(libusb_device* dev)
+{
+    uint8_t busNum = libusb_get_bus_number(dev);
+    uint8_t addr = libusb_get_device_address(dev);
+    libusb_device_handle* handle = nullptr;
+    if (libusb_open(dev, &handle) != 0)
+    {
+        lg2::error(
+            "USBDeviceEnumerator: failed to open device bus {BUS} addr {ADDR}",
+            "BUS", static_cast<int>(busNum), "ADDR", static_cast<int>(addr));
+        return;
+    }
+    auto device = std::make_shared<USBPollingDevice>(handle, busNum, addr);
+    if (!device)
+    {
+        lg2::error(
+            "USBDeviceEnumerator: failed to create USB polling device for bus {BUS}, address {ADDRESS}",
+            "BUS", busNum, "ADDRESS", addr);
+        libusb_close(handle);
+        return;
+    }
+    notifyDeviceAdded(std::move(device), TransportInterface::USB, busNum, addr);
 }
 
 void USBDeviceEnumerator::scanDeviceList()
 {
     libusb_device** devs = nullptr;
-    ssize_t cnt = libusb_get_device_list(usbCtx, &devs);
+    ssize_t cnt = libusb_get_device_list(usbCtx.get(), &devs);
     if (cnt < 0)
     {
         lg2::error("USBDeviceEnumerator: libusb_get_device_list failed");
@@ -252,11 +218,7 @@ void USBDeviceEnumerator::scanDeviceList()
         }
         if (desc.idVendor == vendorId && desc.idProduct == productId)
         {
-            uint8_t bus = libusb_get_bus_number(dev);
-            uint8_t addr = libusb_get_device_address(dev);
-            int socketId = addDeviceAndGetSocketId(bus, addr);
-            manager->onDeviceAdded(TransportInterface::USB, bus, addr,
-                                   socketId);
+            tryAddDevice(dev);
         }
     }
     libusb_free_device_list(devs, 1);
@@ -264,7 +226,7 @@ void USBDeviceEnumerator::scanDeviceList()
 
 sdbusplus::async::task<void> USBDeviceEnumerator::run()
 {
-    if (!usbCtx)
+    if (!usbCtx.get())
     {
         lg2::error("USBDeviceEnumerator: libusb context not initialized");
         co_return;
@@ -335,7 +297,7 @@ void USBDeviceEnumerator::removeWatcher(int fd)
 
 void USBDeviceEnumerator::attachFirstPollfd(bool warnIfNull)
 {
-    const libusb_pollfd** pfds = libusb_get_pollfds(usbCtx);
+    const libusb_pollfd** pfds = libusb_get_pollfds(usbCtx.get());
     if (!pfds)
     {
         if (warnIfNull)
@@ -355,7 +317,7 @@ void USBDeviceEnumerator::attachFirstPollfd(bool warnIfNull)
 void USBDeviceEnumerator::processLibusbEvents()
 {
     struct timeval tv = {0, 0};
-    libusb_handle_events_timeout_completed(usbCtx, &tv, nullptr);
+    libusb_handle_events_timeout_completed(usbCtx.get(), &tv, nullptr);
     if (!hotplugSupported)
     {
         scanDeviceList();

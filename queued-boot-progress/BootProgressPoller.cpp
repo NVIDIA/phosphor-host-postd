@@ -40,10 +40,11 @@ void BootProgressPoller::initIndices()
 }
 
 sdbusplus::async::task<std::optional<uint32_t>>
-    BootProgressPoller::readRegister(uint32_t regAddr)
+    BootProgressPoller::readRegister(uint32_t regAddr,
+                                     const std::shared_ptr<PollingDevice>& dev)
 {
     uint32_t regValue = 0;
-    if (!device->readRegisterValue(regAddr, regValue))
+    if (!dev->readRegisterValue(regAddr, regValue))
     {
         lg2::debug("Failed to read register {REG_ADDR}", "REG_ADDR",
                    std::format("0x{:08X}", regAddr));
@@ -61,14 +62,14 @@ void BootProgressPoller::parseQueueIndices(uint32_t regVal, uint32_t& start,
 }
 
 sdbusplus::async::task<std::optional<uint32_t>> BootProgressPoller::getQbaseIdx(
-    int qnum)
+    int qnum, const std::shared_ptr<PollingDevice>& dev)
 {
     if (qnum == 0)
     {
         co_return 0;
     }
 
-    auto regResult = co_await readRegister(queueIndexStart.at(0));
+    auto regResult = co_await readRegister(queueIndexStart.at(0), dev);
     if (!regResult.has_value())
     {
         lg2::debug("Failed to read queue base index for qnum {QNUM}", "QNUM",
@@ -83,12 +84,13 @@ sdbusplus::async::task<std::optional<uint32_t>> BootProgressPoller::getQbaseIdx(
 
 sdbusplus::async::task<
     std::optional<std::vector<std::pair<uint32_t, uint32_t>>>>
-    BootProgressPoller::processQueue(int queueNumber)
+    BootProgressPoller::processQueue(int queueNumber,
+                                     const std::shared_ptr<PollingDevice>& dev)
 {
     std::vector<std::pair<uint32_t, uint32_t>> bootProgressEntries;
     uint32_t currStart = 0, currEnd = 0, queueSize = 0;
 
-    auto regResult = co_await readRegister(queueIndexStart[queueNumber]);
+    auto regResult = co_await readRegister(queueIndexStart[queueNumber], dev);
     if (!regResult.has_value())
     {
         lg2::debug(
@@ -106,7 +108,7 @@ sdbusplus::async::task<
         co_return std::nullopt;
     }
 
-    auto qbase = co_await getQbaseIdx(queueNumber);
+    auto qbase = co_await getQbaseIdx(queueNumber, dev);
     if (!qbase.has_value())
     {
         co_return std::nullopt;
@@ -155,7 +157,7 @@ sdbusplus::async::task<
         const uint32_t tsAddr = scratchRamGroup0 + (8 * idx);
         const uint32_t codeAddr = tsAddr + 4;
 
-        auto tsResult = co_await readRegister(tsAddr);
+        auto tsResult = co_await readRegister(tsAddr, dev);
         if (!tsResult.has_value())
         {
             lg2::debug(
@@ -165,7 +167,7 @@ sdbusplus::async::task<
             co_return std::nullopt;
         }
 
-        auto codeResult = co_await readRegister(codeAddr);
+        auto codeResult = co_await readRegister(codeAddr, dev);
         if (!codeResult.has_value())
         {
             lg2::debug(
@@ -202,18 +204,26 @@ sdbusplus::async::task<
     co_return bootProgressEntries;
 }
 
+void BootProgressPoller::stop()
+{
+    stopped = true;
+    device = nullptr;
+}
+
 sdbusplus::async::task<void> BootProgressPoller::pollQueues()
 {
-    while (!ctx.stop_requested())
+    auto self = shared_from_this();
+    while (!ctx.stop_requested() && !stopped)
     {
         if (pollStatus)
         {
+            auto currentDevice = device;
             bool anyReadSucceeded = false;
             std::vector<std::pair<uint32_t, uint32_t>> entries;
 
             for (int qnum = 0; qnum < numberOfQueues; ++qnum)
             {
-                auto queueResults = co_await processQueue(qnum);
+                auto queueResults = co_await processQueue(qnum, currentDevice);
                 if (queueResults.has_value())
                 {
                     anyReadSucceeded = true;
@@ -255,11 +265,6 @@ void BootProgressPoller::updatePollStatus(bool newPollStatus)
 {
     pollStatus = newPollStatus;
     consecutiveFailures = 0;
-}
-
-bool BootProgressPoller::isPolling() const
-{
-    return pollStatus;
 }
 
 std::chrono::milliseconds BootProgressPoller::calculateSleepDuration() const

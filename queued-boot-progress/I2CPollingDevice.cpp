@@ -15,8 +15,9 @@
  * limitations under the License.
  */
 
+#include "I2CPollingDevice.hpp"
+
 #include "BootProgressManager.hpp"
-#include "PollingDevice.hpp"
 
 #include <fcntl.h>
 #include <linux/i2c-dev.h>
@@ -184,11 +185,17 @@ bool I2CPollingDevice::i2cWriteRead(std::vector<uint8_t> writeData,
 void initializeI2CDevices(std::shared_ptr<BootProgressManager> mgr,
                           const I2CDeviceList& deviceList)
 {
-    int socketId = 0;
-    for (const auto& device : deviceList)
+    for (const auto& [bus, address] : deviceList)
     {
-        mgr->onDeviceAdded(TransportInterface::I2C, device.first, device.second,
-                           socketId);
-        socketId++;
+        auto device = std::make_shared<I2CPollingDevice>(bus, address);
+        if (!device)
+        {
+            lg2::error(
+                "Failed to create I2C polling device for bus {BUS}, address {ADDRESS}",
+                "BUS", bus, "ADDRESS", address);
+            continue;
+        }
+        mgr->onDeviceAdded(std::move(device), TransportInterface::I2C, bus,
+                           address);
     }
 }

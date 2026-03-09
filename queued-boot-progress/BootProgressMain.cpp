@@ -19,7 +19,9 @@
 #include "BootProgressManager.hpp"
 #include "CakBootProgressPublisher.hpp"
 #include "ConfigReader.hpp"
+#include "I2CPollingDevice.hpp"
 #include "PollingDevice.hpp"
+#include "USBPollingDevice.hpp"
 #include "lpcsnoop/snoop.hpp"
 
 #include <phosphor-logging/lg2.hpp>
@@ -54,12 +56,12 @@ int main(int argc, char* argv[])
     else
     {
         // USB needs enumerator for hotplug support
-        deviceEnumerator = getPollingDeviceEnumerator(
-            ctx, bootProgressManager, config.transportInterface,
-            config.usbVendorId, config.usbProductId, config.usbRescanInterval);
+        deviceEnumerator = std::make_shared<USBDeviceEnumerator>(
+            ctx, bootProgressManager, config.usbVendorId, config.usbProductId,
+            config.usbRescanInterval);
         if (!deviceEnumerator)
         {
-            lg2::error("Failed to get polling device enumerator");
+            lg2::error("Failed to create USB device enumerator");
             return EXIT_FAILURE;
         }
     }

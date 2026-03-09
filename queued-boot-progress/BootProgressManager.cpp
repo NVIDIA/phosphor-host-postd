@@ -104,6 +104,18 @@ void BootProgressManager::onDeviceRemoved(TransportInterface transportInterface,
         "Device removed: transportInterface {TRANSPORT_INTERFACE}, bus {BUS}, address {ADDRESS}, socketId {SOCKET_ID}",
         "TRANSPORT_INTERFACE", static_cast<int>(transportInterface), "BUS", bus,
         "ADDRESS", address, "SOCKET_ID", socketId);
+
+    /* Only reset when all USB devices are removed (no pollers still active) */
+    if (transportInterface == TransportInterface::USB)
+    {
+        bool anyStillPolling = std::any_of(
+            socketDataMap.begin(), socketDataMap.end(),
+            [](const auto& p) { return p.second.poller->isPolling(); });
+        if (!anyStillPolling)
+        {
+            resetPublisherCachedState();
+        }
+    }
 }
 
 void BootProgressManager::updatePollInterval(

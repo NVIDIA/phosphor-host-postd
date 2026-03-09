@@ -16,20 +16,25 @@
  */
 #pragma once
 
+#include "CakBootProgressPublisher.hpp"
 #include "lpcsnoop/snoop.hpp"
 
 #include <sdbusplus/async.hpp>
+#include <xyz/openbmc_project/State/Boot/Progress/server.hpp>
 
 #include <chrono>
+#include <cstddef>
+#include <memory>
 #include <string>
 #include <vector>
 
 class BootProgressPublisher : public PostObject
 {
   public:
-    BootProgressPublisher(sdbusplus::async::context& ctx,
-                          const std::string& snoopDbus,
-                          const std::string& snoopObject);
+    BootProgressPublisher(
+        sdbusplus::async::context& ctx, const std::string& snoopDbus,
+        const std::string& snoopObject,
+        std::shared_ptr<CakBootProgressPublisher> cakPublisher = nullptr);
 
     sdbusplus::async::task<void> update(
         const std::vector<std::pair<uint32_t, uint32_t>> progressCodeData);
@@ -46,6 +51,8 @@ class BootProgressPublisher : public PostObject
     std::chrono::steady_clock::time_point lastDbusUpdateTime;
     // Minimum interval between D-Bus property updates (milliseconds)
     static constexpr uint32_t dbusUpdateIntervalMs = 100;
+
+    std::shared_ptr<CakBootProgressPublisher> cakBootProgressPublisher;
 
     sdbusplus::async::task<void> updateBootProgressProperty(
         const std::string& progressStage);

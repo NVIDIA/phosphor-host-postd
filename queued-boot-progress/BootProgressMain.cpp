@@ -17,6 +17,7 @@
 
 #include "BootProgressApplication.hpp"
 #include "BootProgressManager.hpp"
+#include "CakBootProgressPublisher.hpp"
 #include "ConfigReader.hpp"
 #include "PollingDevice.hpp"
 #include "lpcsnoop/snoop.hpp"
@@ -33,8 +34,15 @@ int main(int argc, char* argv[])
         return EXIT_FAILURE;
     }
 
+    std::shared_ptr<CakBootProgressPublisher> cakPublisher = nullptr;
+    if (config.cakCpuCount)
+    {
+        cakPublisher =
+            std::make_shared<CakBootProgressPublisher>(ctx, config.cakCpuCount);
+    }
+
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject), cakPublisher);
     auto bootProgressManager = std::make_shared<BootProgressManager>(
         ctx, publisher, config.pollInterval);
 

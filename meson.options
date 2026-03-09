@@ -85,3 +85,10 @@ option(
     value: [],
     description: 'Address where the device is located',
 )
+option(
+    'cak-cpu-count',
+    type: 'combo',
+    choices: ['0', '1', '2'],
+    value: '0',
+    description: 'Number of CPUs emitting CAK post codes',
+)

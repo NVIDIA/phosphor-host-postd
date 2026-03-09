@@ -52,10 +52,12 @@ constexpr auto bootProgressService = "xyz.openbmc_project.State.Host";
 constexpr auto bootProgressObject = "/xyz/openbmc_project/state/host0";
 constexpr auto bootProgressInf = "xyz.openbmc_project.State.Boot.Progress";
 
-BootProgressPublisher::BootProgressPublisher(sdbusplus::async::context& ctx,
-                                             const std::string& snoopDbus,
-                                             const std::string& snoopObject) :
-    PostObject(ctx.get_bus(), snoopObject.c_str()), ctx(ctx)
+BootProgressPublisher::BootProgressPublisher(
+    sdbusplus::async::context& ctx, const std::string& snoopDbus,
+    const std::string& snoopObject,
+    std::shared_ptr<CakBootProgressPublisher> cakPublisher) :
+    PostObject(ctx.get_bus(), snoopObject.c_str()), ctx(ctx),
+    cakBootProgressPublisher(std::move(cakPublisher))
 {
     this->emit_object_added();
     ctx.get_bus().request_name(snoopDbus.c_str());
@@ -92,6 +94,11 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
             this->value(std::make_tuple(code, timeStampOffset));
 
             latestOem = std::format("0x{:08X}", progressCode);
+
+            if (cakBootProgressPublisher)
+            {
+                cakBootProgressPublisher->onProgressCode(progressCode);
+            }
 
             /* Stage arbitration logic:
              * - Non-OEM stages (PCIInit, SystemInitComplete, etc.) take
@@ -346,4 +353,9 @@ void BootProgressPublisher::resetCachedState()
     lastPublishedOem.clear();
     lastPublishedTimestamp = 0;
     lastDbusUpdateTime = std::chrono::steady_clock::time_point{};
+
+    if (cakBootProgressPublisher)
+    {
+        cakBootProgressPublisher->resetCachedState();
+    }
 }

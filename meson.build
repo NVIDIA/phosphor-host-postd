@@ -41,6 +41,7 @@ elif get_option('queued-boot-progress').allowed()
     snoopd_src += 'queued-boot-progress/PollingDevice.cpp'
     snoopd_src += 'queued-boot-progress/I2CPollingDevice.cpp'
     snoopd_src += 'queued-boot-progress/USBPollingDevice.cpp'
+    snoopd_src += 'queued-boot-progress/CakBootProgressPublisher.cpp'
     snoopd_src += 'queued-boot-progress/BootProgressPublisher.cpp'
     snoopd_src += 'queued-boot-progress/BootProgressPoller.cpp'
     snoopd_src += 'queued-boot-progress/BootProgressMain.cpp'
@@ -64,6 +65,8 @@ elif get_option('queued-boot-progress').allowed()
     if poll_interval > 0
         snoopd_args += ' -p ' + poll_interval.to_string()
     endif
+    cak_cpu_count = get_option('cak-cpu-count')
+    snoopd_args += ' -c ' + cak_cpu_count
 endif
 
 if snoopd_src.length() == 0

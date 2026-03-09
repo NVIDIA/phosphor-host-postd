@@ -22,6 +22,7 @@
 #include <phosphor-logging/lg2.hpp>
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <string>
@@ -37,6 +38,7 @@ struct Configuration
     uint16_t usbVendorId = 0x0955;
     uint16_t usbProductId = 0x7410;
     std::chrono::seconds usbRescanInterval = std::chrono::seconds(100);
+    size_t cakCpuCount = 0;
 };
 
 class ConfigReader
@@ -51,10 +53,11 @@ class ConfigReader
             {"transport-interface", required_argument, nullptr, 'i'},
             {"i2c-bus", required_argument, nullptr, 'b'},
             {"i2c-address", required_argument, nullptr, 'a'},
+            {"cak-cpu-count", required_argument, nullptr, 'c'},
             {nullptr, 0, nullptr, 0}};
         std::vector<int> busList;
         std::vector<int> addrList;
-        while ((opt = getopt_long(argc, argv, "p:i:b:a:", long_options,
+        while ((opt = getopt_long(argc, argv, "p:i:b:a:c:", long_options,
                                   nullptr)) != -1)
         {
             switch (opt)
@@ -126,6 +129,25 @@ class ConfigReader
                     catch (const std::exception& e)
                     {
                         lg2::error("Invalid i2c address: {ADDRESS}", "ADDRESS",
+                                   optarg);
+                        return false;
+                    }
+                    break;
+                case 'c':
+                    try
+                    {
+                        auto count = std::stoul(optarg);
+                        if (count > 2)
+                        {
+                            lg2::error("Invalid cak-cpu-count: {COUNT}",
+                                       "COUNT", optarg);
+                            return false;
+                        }
+                        config.cakCpuCount = count;
+                    }
+                    catch (const std::exception& e)
+                    {
+                        lg2::error("Invalid cak-cpu-count: {COUNT}", "COUNT",
                                    optarg);
                         return false;
                     }

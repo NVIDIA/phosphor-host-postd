@@ -34,7 +34,14 @@ I2CPollingDevice::I2CPollingDevice(const uint8_t& i2cBus,
                                    const uint8_t& address) :
     busPath(std::format("/dev/i2c-{}", i2cBus)), deviceAddress(address)
 {
-    openDevice();
+    if (openDevice())
+    {
+        discardStaleBlockReadIfAny();
+        if (i2cFileDescriptor < 0)
+        {
+            openDevice();
+        }
+    }
 }
 
 I2CPollingDevice::~I2CPollingDevice()
@@ -95,9 +102,17 @@ bool I2CPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
     std::vector<uint8_t> dummyRead;
     if (!i2cWriteRead(writeData, dummyRead))
     {
-        lg2::debug("SET_READ_ADDR failed for register {REG_ADDR}", "REG_ADDR",
-                   regAddrStr);
-        return false;
+        discardStaleBlockReadIfAny();
+        if (i2cFileDescriptor < 0)
+        {
+            openDevice();
+        }
+        if (!i2cWriteRead(writeData, dummyRead))
+        {
+            lg2::debug("SET_READ_ADDR failed for register {REG_ADDR}",
+                       "REG_ADDR", regAddrStr);
+            return false;
+        }
     }
     std::vector<uint8_t> blockReadCmd = {blockRead};
     std::vector<uint8_t> readBuf(5);
@@ -180,6 +195,21 @@ bool I2CPollingDevice::i2cWriteRead(std::vector<uint8_t> writeData,
         readBuf.resize(msgReadWrite.msgs[msgCount - 1].len);
     }
     return true;
+}
+
+void I2CPollingDevice::discardStaleBlockReadIfAny()
+{
+    static constexpr uint8_t blockRead = 0xf3;
+    static constexpr size_t blockReadPayloadLen = 5;
+
+    if (i2cFileDescriptor < 0)
+    {
+        return;
+    }
+
+    std::vector<uint8_t> blockReadCmd = {blockRead};
+    std::vector<uint8_t> readBuf(blockReadPayloadLen);
+    i2cWriteRead(blockReadCmd, readBuf);
 }
 
 void initializeI2CDevices(std::shared_ptr<BootProgressManager> mgr,

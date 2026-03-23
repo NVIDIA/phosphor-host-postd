@@ -4,6 +4,7 @@ After=@SYSTEMD_AFTER_SERVICE@
 
 [Service]
 Restart=always
+ExecStartPre=/bin/sh -c 'until busctl status xyz.openbmc_project.State.Host > /dev/null 2>&1; do sleep 1; done'
 ExecStart=@bindir@/snoopd @SNOOPD_ARGS@
 
 [Install]

@@ -56,6 +56,9 @@ class I2CPollingDevice : public PollingDevice
 
     bool openDevice();
     void closeDevice();
+    /** 0xF3 block read only; does not retry F1. Ctor + readRegisterValue on F1
+     * failure. */
+    void discardStaleBlockReadIfAny();
     bool performIoctlWithRetry(i2c_rdwr_ioctl_data& msgReadWrite);
     bool i2cWriteRead(std::vector<uint8_t> writeData,
                       std::vector<uint8_t>& readBuf);

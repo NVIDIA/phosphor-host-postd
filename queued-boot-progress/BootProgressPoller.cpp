@@ -144,14 +144,20 @@ sdbusplus::async::task<
     {
         if (currStart != lastStart)
         {
-            idx = currStart;
             lastStart = currStart;
-            bootProgressEntries.emplace_back(
-                std::make_pair(0xFFFFFFFF, 0xFFFFFFFF));
-            lg2::info(
-                "Queue {QUEUE_NUMBER} on socket {SOCKET_ID} overflow detected: new start={START}",
-                "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId, "START",
-                currStart);
+            uint32_t entriesInQueue =
+                (currEnd - currStart + queueSize) % queueSize;
+            uint32_t distToEnd = (currEnd - idx + queueSize) % queueSize;
+            if (distToEnd > entriesInQueue)
+            {
+                idx = currStart;
+                bootProgressEntries.emplace_back(
+                    std::make_pair(0xFFFFFFFF, 0xFFFFFFFF));
+                lg2::info(
+                    "Queue {QUEUE_NUMBER} on socket {SOCKET_ID} overflow detected: new start={START}",
+                    "QUEUE_NUMBER", queueNumber, "SOCKET_ID", socketId, "START",
+                    currStart);
+            }
         }
 
         const uint32_t tsAddr = scratchRamGroup0 + (8 * idx);

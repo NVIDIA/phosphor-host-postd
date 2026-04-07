@@ -48,6 +48,9 @@ class PollingDevice
     virtual ~PollingDevice() = default;
 
     virtual bool readRegisterValue(uint32_t regAddr, uint32_t& regValue) = 0;
+
+  protected:
+    bool deviceHealthy = true;
 };
 
 using OnDeviceAddedCallback = std::function<void(

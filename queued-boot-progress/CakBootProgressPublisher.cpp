@@ -146,6 +146,9 @@ void CakBootProgressPublisher::publishCakStageIfChanged(
         return;
     }
 
+    lg2::info("CAK BootProgress stage: {OLD} -> {NEW}", "OLD",
+              lastPublishedStage.empty() ? "(none)" : lastPublishedStage, "NEW",
+              stage);
     bootProgressObj->bootProgress(BootProgressInterface::ProgressStages::OEM);
     bootProgressObj->bootProgressOem(stage);
     lastPublishedStage = stage;

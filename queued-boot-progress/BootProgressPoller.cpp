@@ -237,8 +237,23 @@ sdbusplus::async::task<void> BootProgressPoller::pollQueues()
                                    queueResults.value().end());
                 }
             }
+
+            const int prevFailures = consecutiveFailures;
             consecutiveFailures =
                 anyReadSucceeded ? 0 : (consecutiveFailures + 1);
+
+            if (anyReadSucceeded && prevFailures > 0)
+            {
+                lg2::info(
+                    "Socket {SOCKET_ID}: I2C polling recovered after {FAILURES} consecutive failures",
+                    "SOCKET_ID", socketId, "FAILURES", prevFailures);
+            }
+            else if (!anyReadSucceeded && prevFailures == 0)
+            {
+                lg2::error(
+                    "Socket {SOCKET_ID}: I2C polling failed (first failure)",
+                    "SOCKET_ID", socketId);
+            }
 
             if (!entries.empty())
             {
@@ -269,6 +284,11 @@ void BootProgressPoller::updatePollInterval(
 
 void BootProgressPoller::updatePollStatus(bool newPollStatus)
 {
+    if (pollStatus != newPollStatus)
+    {
+        lg2::info("Socket {SOCKET_ID}: polling {STATUS}", "SOCKET_ID", socketId,
+                  "STATUS", newPollStatus ? "enabled" : "disabled");
+    }
     pollStatus = newPollStatus;
     consecutiveFailures = 0;
 }

@@ -44,7 +44,13 @@ bool USBPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
 {
     if (!devHandle)
     {
-        lg2::debug("USB device not opened");
+        if (deviceHealthy)
+        {
+            lg2::debug("USB device not opened: bus {BUS}, addr {ADDR}", "BUS",
+                       static_cast<int>(bus), "ADDR",
+                       static_cast<int>(deviceAddress));
+            deviceHealthy = false;
+        }
         return false;
     }
     static constexpr uint8_t readLength = 4;
@@ -60,20 +66,35 @@ bool USBPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
                                 wIndex, readData.data(), readLength, timeoutMs);
     if (transferLength < 0)
     {
-        lg2::debug("Failed to read register {REG_ADDR}: {ERROR}", "REG_ADDR",
-                   regAddrStr, "ERROR", transferLength);
+        if (deviceHealthy)
+        {
+            lg2::error("Failed to read register {REG_ADDR}: {ERROR}",
+                       "REG_ADDR", regAddrStr, "ERROR", transferLength);
+            deviceHealthy = false;
+        }
         return false;
     }
     if (transferLength != readLength)
     {
-        lg2::debug("Failed to read register {REG_ADDR}: {ERROR}", "REG_ADDR",
-                   regAddrStr, "ERROR", transferLength);
+        if (deviceHealthy)
+        {
+            lg2::error("Failed to read register {REG_ADDR}: {ERROR}",
+                       "REG_ADDR", regAddrStr, "ERROR", transferLength);
+            deviceHealthy = false;
+        }
         return false;
     }
     regValue = (static_cast<uint32_t>(readData[3]) << 24) |
                (static_cast<uint32_t>(readData[2]) << 16) |
                (static_cast<uint32_t>(readData[1]) << 8) |
                static_cast<uint32_t>(readData[0]);
+    if (!deviceHealthy)
+    {
+        lg2::info("USB device bus {BUS} addr {ADDR} recovered", "BUS",
+                  static_cast<int>(bus), "ADDR",
+                  static_cast<int>(deviceAddress));
+        deviceHealthy = true;
+    }
     return true;
 }
 
@@ -89,13 +110,13 @@ USBDeviceEnumerator::USBDeviceEnumerator(
     libusb_context* raw = nullptr;
     if (libusb_init(&raw) < 0)
     {
-        lg2::debug("USBDeviceEnumerator: failed to init libusb");
+        lg2::error("USBDeviceEnumerator: failed to init libusb");
         return;
     }
     usbCtx.reset(raw);
     if (!libusb_has_capability(LIBUSB_CAP_HAS_HOTPLUG))
     {
-        lg2::debug("USBDeviceEnumerator: hotplug not supported");
+        lg2::info("USBDeviceEnumerator: hotplug not supported");
         hotplugSupported = false;
         return;
     }

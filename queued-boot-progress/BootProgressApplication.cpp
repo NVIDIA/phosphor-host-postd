@@ -196,13 +196,11 @@ void Application::updatePollInterval()
 
     if (isHostPowerStateOff())
     {
-        lg2::info("Host is off - disabling boot progress polling");
         constexpr int disabledCheckMultiplier = 10;
         calculatedInterval = baseInterval * disabledCheckMultiplier;
-        lg2::debug(
-            "Setting polling interval to {INTERVAL}ms (host off, base * {MULT})",
-            "INTERVAL", calculatedInterval.count(), "MULT",
-            disabledCheckMultiplier);
+        lg2::info(
+            "Host off: boot progress polling disabled, update poll interval to {INTERVAL} ms",
+            "INTERVAL", calculatedInterval.count());
         bootProgressManager->updatePollInterval(calculatedInterval);
         bootProgressManager->updatePollStatus(false);
         return;
@@ -215,10 +213,14 @@ void Application::updatePollInterval()
         constexpr std::chrono::milliseconds maxPollInterval{3600000};
         calculatedInterval =
             std::min(baseInterval * bootCompleteMultiplier, maxPollInterval);
+        lg2::info("Boot complete - update poll interval to {INTERVAL}ms",
+                  "INTERVAL", calculatedInterval.count());
     }
-
-    lg2::debug("Setting polling interval to {INTERVAL}ms", "INTERVAL",
-               calculatedInterval.count());
+    else
+    {
+        lg2::info("Host on - polling at base interval {INTERVAL}ms", "INTERVAL",
+                  calculatedInterval.count());
+    }
     bootProgressManager->updatePollInterval(calculatedInterval);
     bootProgressManager->updatePollStatus(true);
 }

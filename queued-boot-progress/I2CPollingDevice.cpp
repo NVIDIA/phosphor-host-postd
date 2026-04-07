@@ -133,6 +133,11 @@ bool I2CPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
                (static_cast<uint32_t>(readBuf[3]) << 16) |
                (static_cast<uint32_t>(readBuf[2]) << 8) |
                static_cast<uint32_t>(readBuf[1]);
+    if (!deviceHealthy)
+    {
+        lg2::info("I2C device {BUS_PATH} recovered", "BUS_PATH", busPath);
+        deviceHealthy = true;
+    }
     return true;
 }
 
@@ -140,8 +145,12 @@ bool I2CPollingDevice::performIoctlWithRetry(i2c_rdwr_ioctl_data& msgReadWrite)
 {
     if (!openDevice())
     {
-        lg2::debug("Failed to open I2C device: {BUS_PATH}", "BUS_PATH",
-                   busPath);
+        if (deviceHealthy)
+        {
+            lg2::error("Failed to open I2C device: {BUS_PATH}", "BUS_PATH",
+                       busPath);
+            deviceHealthy = false;
+        }
         return false;
     }
 
@@ -151,9 +160,13 @@ bool I2CPollingDevice::performIoctlWithRetry(i2c_rdwr_ioctl_data& msgReadWrite)
         return true;
     }
     closeDevice();
-    lg2::debug(
-        "I2C ioctl failed (errno: {ERRNO}), closed fd to release kernel reference: {BUS_PATH}",
-        "ERRNO", errno, "BUS_PATH", busPath);
+    if (deviceHealthy)
+    {
+        lg2::error(
+            "I2C ioctl failed (errno: {ERRNO}), closed fd to release kernel reference: {BUS_PATH}",
+            "ERRNO", errno, "BUS_PATH", busPath);
+        deviceHealthy = false;
+    }
     return false;
 }
 

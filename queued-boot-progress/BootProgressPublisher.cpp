@@ -272,7 +272,7 @@ sdbusplus::async::task<void>
     }
     catch (const std::exception& e)
     {
-        lg2::error(
+        lg2::debug(
             "D-Bus Call failed to set BootProgressLastUpdate property to {TS}: {ERROR}",
             "TS", bootProgressLastUpdate, "ERROR", e.what());
     }
@@ -323,6 +323,9 @@ sdbusplus::async::task<void> BootProgressPublisher::flushPendingUpdates(
 
     if (updateStage)
     {
+        lg2::info("BootProgress stage: {OLD} -> {NEW}", "OLD",
+                  lastPublishedStage.empty() ? "(none)" : lastPublishedStage,
+                  "NEW", stage);
         co_await updateBootProgressProperty(stage);
         lastPublishedStage = stage;
     }

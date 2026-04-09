@@ -162,18 +162,24 @@ void SbmrBootProgress::updateBootProgressProperties(
             << static_cast<int>(bootProgressRecord[8]);
     auto bootProgressStage = hexCode.str();
 
-    updateBootProgressOem(bootProgressStage);
-    updateBootProgressLastUpdate(tsUS);
-    // Find the mapping
     auto found = sbmrBootProgressStages.find(bootProgressStage);
     if (found == sbmrBootProgressStages.end())
     {
+        // OEM code: set the hex value before advertising "OEM" so that
+        // any reader that sees BootProgress=="OEM" already finds the
+        // correct BootProgressOem value.
+        updateBootProgressOem(bootProgressStage);
         updatePropertyBootProgress(oemSbmrBootStage);
     }
     else
     {
+        // Mapped (non-OEM) code: set BootProgress to the mapped enum
+        // first so that readers never observe a stale "OEM" enum paired
+        // with a hex value that actually maps to a named stage.
         updatePropertyBootProgress(found->second);
+        updateBootProgressOem(bootProgressStage);
     }
+    updateBootProgressLastUpdate(tsUS);
 
     // Don't log event when BMC rebooted/Service start
     if (!errorLog.is_discarded() && logEvent)

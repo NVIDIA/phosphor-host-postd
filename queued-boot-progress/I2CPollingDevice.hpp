@@ -48,6 +48,7 @@ class I2CPollingDevice : public PollingDevice
     I2CPollingDevice& operator=(I2CPollingDevice&&) = delete;
 
     bool readRegisterValue(uint32_t regAddr, uint32_t& regValue) override;
+    bool doL1Reset() override;
 
   private:
     std::string busPath;

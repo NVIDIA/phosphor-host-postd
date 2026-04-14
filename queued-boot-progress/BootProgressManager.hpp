@@ -25,6 +25,7 @@
 #include <sdbusplus/async.hpp>
 
 #include <chrono>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -44,11 +45,12 @@ struct SocketData
 {
     DeviceIdentity identity;
     std::shared_ptr<BootProgressPoller> poller;
+    std::shared_ptr<PollingDevice> device; // retained for L1 reset
     std::vector<std::pair<uint32_t, uint32_t>> buffer;
     SocketData() = default;
-    SocketData(DeviceIdentity identity,
-               std::shared_ptr<BootProgressPoller> poller) :
-        identity(identity), poller(poller)
+    SocketData(DeviceIdentity id, std::shared_ptr<BootProgressPoller> p,
+               std::shared_ptr<PollingDevice> d) :
+        identity(id), poller(std::move(p)), device(std::move(d))
     {}
 };
 
@@ -74,6 +76,11 @@ class BootProgressManager
 
     void updatePollStatus(bool enablePolling);
 
+    /** Perform an L1 SW main reset on the first available polling device.
+     *  Pauses boot-progress polling for the duration to avoid concurrent
+     *  device access.  Throws sdbusplus Common errors on failure. */
+    sdbusplus::async::task<> doL1Reset();
+
     void initIndices();
 
     void resetPublisherCachedState();
@@ -85,6 +92,7 @@ class BootProgressManager
     std::unordered_map<int, SocketData> socketDataMap;
     int nextSocketId = 0;
     std::vector<std::pair<uint32_t, uint32_t>> allSocketProgressEntries;
+    bool resetInProgress_ = false;
 
     void aggregateAndSortAllSocketData();
     sdbusplus::async::task<void> periodicPublishCheck();

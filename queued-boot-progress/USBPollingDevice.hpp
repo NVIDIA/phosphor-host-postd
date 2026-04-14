@@ -42,6 +42,9 @@ class USBPollingDevice : public PollingDevice
     USBPollingDevice& operator=(USBPollingDevice&&) = delete;
 
     bool readRegisterValue(uint32_t regAddr, uint32_t& regValue) override;
+    bool doL1Reset() override;
+    bool isOpen() const override;
+    void invalidate() override;
 
   private:
     uint8_t bus;

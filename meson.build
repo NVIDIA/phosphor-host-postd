@@ -87,6 +87,11 @@ elif get_option('queued-boot-progress').allowed()
     endif
     cak_cpu_count = get_option('cak-cpu-count')
     snoopd_args += ' -c ' + cak_cpu_count
+
+    if get_option('l1reset').allowed()
+        snoopd_src += 'queued-boot-progress/L1ResetHandler.cpp'
+        add_project_arguments('-DENABLE_L1RESET', language: 'cpp')
+    endif
 endif
 
 if snoopd_src.length() == 0

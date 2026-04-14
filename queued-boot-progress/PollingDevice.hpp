@@ -49,6 +49,26 @@ class PollingDevice
 
     virtual bool readRegisterValue(uint32_t regAddr, uint32_t& regValue) = 0;
 
+    /** Trigger an L1 SW main reset of the CPU.
+     *  Writes 0x00000001 to the sw_main_rst register (PMC_IMPL_SW_MAIN_RST_0)
+     *  via the transport-specific protocol.  Returns true on success.
+     *  Default implementation returns false (not supported). */
+    virtual bool doL1Reset()
+    {
+        return false;
+    }
+
+    /** Returns false once the underlying transport handle has been closed
+     *  (e.g. after invalidate() or device removal). */
+    virtual bool isOpen() const
+    {
+        return true;
+    }
+
+    /** Close the transport handle immediately without waiting for the OS
+     *  removal event.  Safe to call more than once. */
+    virtual void invalidate() {}
+
   protected:
     bool deviceHealthy = true;
 };

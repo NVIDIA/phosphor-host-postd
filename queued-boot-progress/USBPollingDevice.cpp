@@ -33,6 +33,16 @@ USBPollingDevice::USBPollingDevice(libusb_device_handle* handle, uint8_t busNum,
 
 USBPollingDevice::~USBPollingDevice()
 {
+    invalidate();
+}
+
+bool USBPollingDevice::isOpen() const
+{
+    return devHandle != nullptr;
+}
+
+void USBPollingDevice::invalidate()
+{
     if (devHandle)
     {
         libusb_close(devHandle);
@@ -94,6 +104,54 @@ bool USBPollingDevice::readRegisterValue(uint32_t regAddr, uint32_t& regValue)
         deviceHealthy = true;
     }
     return true;
+}
+
+bool USBPollingDevice::doL1Reset()
+{
+    if (!devHandle)
+    {
+        lg2::error("USB L1 reset: device not open (bus {BUS}, addr {ADDR})",
+                   "BUS", static_cast<int>(bus), "ADDR",
+                   static_cast<int>(deviceAddress));
+        return false;
+    }
+
+    // Write sw_main_rst register (PMC_IMPL_SW_MAIN_RST_0) = 0x00000001.
+    // USB control transfer: host-to-device, vendor, device.
+    //   bmRequestType = 0x40  bRequest = 0x00
+    //   wValue = (regAddr >> 16) = 0x0000
+    //   wIndex = (regAddr & 0xFFFF) = 0x4000 (sw_main_rst)
+    //   data   = 0x00000001 in little-endian = { 0x01, 0x00, 0x00, 0x00 }
+    static constexpr uint8_t bmRequestType = 0x40;
+    static constexpr uint8_t bRequest = 0x00;
+    static constexpr uint16_t wValue = 0x0000;
+    static constexpr uint16_t wIndex = 0x4000; // sw_main_rst register
+    // data array is mutable because libusb_control_transfer takes unsigned
+    // char*
+    std::array<uint8_t, 4> data{0x01, 0x00, 0x00, 0x00};
+    constexpr unsigned int timeoutMs = 1000;
+
+    lg2::debug(
+        "USB L1 reset: bus {BUS} addr {ADDR} sw_main_rst(0x4000)=0x00000001",
+        "BUS", static_cast<int>(bus), "ADDR", static_cast<int>(deviceAddress));
+
+    int ret = libusb_control_transfer(
+        devHandle, bmRequestType, bRequest, wValue, wIndex, data.data(),
+        static_cast<uint16_t>(data.size()), timeoutMs);
+    if (ret == static_cast<int>(data.size()))
+    {
+        lg2::info(
+            "USB L1 reset: sw_main_rst=0x00000001 sent to bus {BUS} addr {ADDR}",
+            "BUS", static_cast<int>(bus), "ADDR",
+            static_cast<int>(deviceAddress));
+        return true;
+    }
+
+    lg2::warning(
+        "USB L1 reset failed: libusb error {ERROR} (bus {BUS} addr {ADDR})",
+        "ERROR", ret, "BUS", static_cast<int>(bus), "ADDR",
+        static_cast<int>(deviceAddress));
+    return false;
 }
 
 USBDeviceEnumerator::USBDeviceEnumerator(

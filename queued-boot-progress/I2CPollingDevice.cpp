@@ -220,6 +220,54 @@ void I2CPollingDevice::discardStaleBlockReadIfAny()
     i2cWriteRead(blockReadCmd, readBuf);
 }
 
+bool I2CPollingDevice::doL1Reset()
+{
+    // L1 SW main reset via EXT_Messaging I2C frames.
+    // Two-frame sequence sets PMC_IMPL_SW_MAIN_RST_0.rst_req = 1:
+    //   F0 frame: set write address to 0x00004000 (sw_main_rst register)
+    //     { 0xF0, 0x04, <addr_LE_4bytes> }
+    //   F2 frame: block write value 0x00000001 (trigger reset)
+    //     { 0xF2, 0x04, <data_LE_4bytes> }
+    // Always flush (F2 zero-write) first to discard any stale pending write
+    // from a previous failed attempt.  The flush is a no-op on a clean bus.
+    static constexpr std::array<uint8_t, 6> setAddrFrame = {
+        0xF0, 0x04, 0x00, 0x40, 0x00, 0x00}; // addr 0x00004000 LE
+    static constexpr std::array<uint8_t, 6> writeFrame = {
+        0xF2, 0x04, 0x01, 0x00, 0x00, 0x00}; // value 0x00000001 LE
+    static constexpr std::array<uint8_t, 6> flushFrame = {
+        0xF2, 0x04, 0x00, 0x00, 0x00, 0x00}; // zero-write flush
+
+    lg2::debug("I2C L1 reset: {BUS_PATH} sw_main_rst=0x00000001", "BUS_PATH",
+               busPath);
+
+    // Flush any stale pending write before attempting the reset
+    std::vector<uint8_t> flush(flushFrame.begin(), flushFrame.end());
+    std::vector<uint8_t> dummy;
+    i2cWriteRead(flush, dummy);
+
+    std::vector<uint8_t> setAddr(setAddrFrame.begin(), setAddrFrame.end());
+    std::vector<uint8_t> dummy1;
+    if (!i2cWriteRead(setAddr, dummy1))
+    {
+        lg2::warning("I2C L1 reset: F0 (set-addr) failed on {BUS_PATH}",
+                     "BUS_PATH", busPath);
+        return false;
+    }
+
+    std::vector<uint8_t> write(writeFrame.begin(), writeFrame.end());
+    std::vector<uint8_t> dummy2;
+    if (!i2cWriteRead(write, dummy2))
+    {
+        lg2::warning("I2C L1 reset: F2 (block-write) failed on {BUS_PATH}",
+                     "BUS_PATH", busPath);
+        return false;
+    }
+
+    lg2::info("I2C L1 reset: sw_main_rst=0x00000001 sent via {BUS_PATH}",
+              "BUS_PATH", busPath);
+    return true;
+}
+
 void initializeI2CDevices(std::shared_ptr<BootProgressManager> mgr,
                           const I2CDeviceList& deviceList)
 {

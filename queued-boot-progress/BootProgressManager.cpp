@@ -18,6 +18,7 @@
 #include "BootProgressManager.hpp"
 
 #include <phosphor-logging/lg2.hpp>
+#include <xyz/openbmc_project/Common/error.hpp>
 
 #include <algorithm>
 
@@ -69,11 +70,13 @@ void BootProgressManager::onDeviceAdded(std::shared_ptr<PollingDevice> device,
     }
 
     int socketId = nextSocketId++;
+    auto deviceRef = device; // retain reference before move
     auto poller = std::make_shared<BootProgressPoller>(
         ctx, std::move(device), pollInterval, socketId,
         std::bind(&BootProgressManager::onBootProgressData, this,
                   std::placeholders::_1, std::placeholders::_2));
-    socketDataMap.emplace(socketId, SocketData(identity, poller));
+    socketDataMap.emplace(socketId,
+                          SocketData(identity, poller, std::move(deviceRef)));
     lg2::info(
         "Device added: transportInterface {TRANSPORT_INTERFACE}, bus {BUS}, address {ADDRESS}, socketId {SOCKET_ID}",
         "TRANSPORT_INTERFACE", static_cast<int>(transportInterface), "BUS", bus,
@@ -174,6 +177,105 @@ sdbusplus::async::task<void> BootProgressManager::periodicPublishCheck()
         {
             tryPublish();
         }
+    }
+    co_return;
+}
+
+sdbusplus::async::task<> BootProgressManager::doL1Reset()
+{
+    if (socketDataMap.empty())
+    {
+        lg2::error("L1Reset: no polling devices available");
+        throw sdbusplus::xyz::openbmc_project::Common::Error::Unavailable();
+    }
+
+    if (resetInProgress_)
+    {
+        lg2::warning(
+            "L1Reset: reset already in progress, rejecting concurrent call");
+        throw sdbusplus::xyz::openbmc_project::Common::Error::Unavailable();
+    }
+    resetInProgress_ = true;
+
+    // Pause boot-progress polling to avoid concurrent device access during
+    // the reset operation.
+    lg2::info("L1Reset: pausing boot-progress polling");
+    updatePollStatus(false);
+
+    struct PollResumeGuard
+    {
+        BootProgressManager& mgr;
+        ~PollResumeGuard()
+        {
+            mgr.resetInProgress_ = false;
+            lg2::info("L1Reset: resuming boot-progress polling");
+            mgr.updatePollStatus(true);
+        }
+    } pollGuard{*this};
+
+    // Retry loop with async sleep so the event loop is not blocked between
+    // attempts.  Device doL1Reset() tries once synchronously (no sleep).
+    constexpr int maxAttempts = 5;
+    constexpr auto retryDelay = std::chrono::milliseconds(100);
+    bool success = false;
+
+    // Snapshot IDs before any co_await: onDeviceRemoved can erase from
+    // socketDataMap while the coroutine is suspended, invalidating iterators.
+    std::vector<int> socketIds;
+    socketIds.reserve(socketDataMap.size());
+    for (const auto& [id, _] : socketDataMap)
+    {
+        socketIds.push_back(id);
+    }
+
+    for (int attempt = 1; attempt <= maxAttempts && !success; ++attempt)
+    {
+        if (attempt > 1)
+        {
+            lg2::debug("L1Reset: retry {ATTEMPT}/{MAX} after delay", "ATTEMPT",
+                       attempt, "MAX", maxAttempts);
+            co_await sdbusplus::async::sleep_for(ctx, retryDelay);
+        }
+
+        for (int socketId : socketIds)
+        {
+            auto it = socketDataMap.find(socketId);
+            if (it == socketDataMap.end() || !it->second.device)
+            {
+                continue;
+            }
+            auto& socketData = it->second;
+            lg2::info("L1Reset: attempt {ATTEMPT}/{MAX} on socket {SOCKET}",
+                      "ATTEMPT", attempt, "MAX", maxAttempts, "SOCKET",
+                      socketId);
+            if (socketData.device->doL1Reset())
+            {
+                lg2::info(
+                    "L1Reset: succeeded on attempt {ATTEMPT} socket {SOCKET}",
+                    "ATTEMPT", attempt, "SOCKET", socketId);
+                // sw_main_rst is system-wide: close all handles now so the
+                // poller skips reads while the devices re-enumerate.
+                for (int id : socketIds)
+                {
+                    auto devIt = socketDataMap.find(id);
+                    if (devIt != socketDataMap.end() && devIt->second.device)
+                    {
+                        devIt->second.device->invalidate();
+                    }
+                }
+                success = true;
+                break;
+            }
+            lg2::warning(
+                "L1Reset: attempt {ATTEMPT}/{MAX} failed on socket {SOCKET}",
+                "ATTEMPT", attempt, "MAX", maxAttempts, "SOCKET", socketId);
+        }
+    }
+
+    if (!success)
+    {
+        lg2::error("L1Reset: all {MAX} attempts failed", "MAX", maxAttempts);
+        throw sdbusplus::xyz::openbmc_project::Common::Error::InternalFailure();
     }
     co_return;
 }

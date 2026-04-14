@@ -224,7 +224,7 @@ sdbusplus::async::task<void> BootProgressPoller::pollQueues()
         if (pollStatus)
         {
             auto currentDevice = device;
-            if (!currentDevice)
+            if (!currentDevice || !currentDevice->isOpen())
             {
                 co_await sdbusplus::async::sleep_for(ctx, pollInterval);
                 continue;

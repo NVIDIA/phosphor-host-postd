@@ -92,3 +92,9 @@ option(
     value: '0',
     description: 'Number of CPUs emitting CAK post codes',
 )
+option(
+    'l1reset',
+    type: 'feature',
+    value: 'disabled',
+    description: 'Expose com.nvidia.L1Reset D-Bus interface so bmcweb can trigger an L1 SW main reset of the connected TB500/Vera CPU.',
+)

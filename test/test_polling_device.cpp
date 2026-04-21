@@ -39,7 +39,7 @@ TEST(PollingDevice, SocketDataConstructWithPoller)
 {
     DeviceIdentity identity{TransportInterface::I2C, 0, 0x50};
     std::shared_ptr<BootProgressPoller> nullPoller = nullptr;
-    SocketData sd(identity, nullPoller);
+    SocketData sd(identity, nullPoller, nullptr);
     EXPECT_EQ(sd.poller, nullptr);
     EXPECT_TRUE(sd.buffer.empty());
 }

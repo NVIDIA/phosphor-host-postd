@@ -21,6 +21,8 @@
 
 #include <phosphor-logging/lg2.hpp>
 
+#include <algorithm>
+#include <array>
 #include <format>
 
 constexpr auto bootProgressOem = "OEM";
@@ -37,6 +39,13 @@ constexpr auto efiProgressCode = 0x01;
 constexpr auto efiIoBus = 0x02;
 constexpr auto efiSoftware = 0x03;
 
+// PSC FMC IST boot progress codes
+constexpr auto pscFmcSubClass = 0xC1;
+constexpr auto pscFmcSocketClass0 = 0x30;
+constexpr auto pscFmcSocketClass1 = 0x31;
+constexpr std::array<uint16_t, 3> pscFmcIstOperations = {
+    0xC0C2, 0xC748, 0xC349};
+
 // EFI_STATUS_CODE_SUBCLASS
 constexpr auto efiIoBusPci = 0x01;
 constexpr auto efiSoftwareDxeCore = 0x04;
@@ -49,6 +58,25 @@ constexpr auto efiSwDxeCorePcHandoffToNext = 0x1001;
 constexpr auto efiSwPcUserSetup = 0x0007;
 constexpr auto efiSwOsLoaderStart = 0x8000;
 constexpr auto efiSwBsPcExitBootServices = 0x1019;
+
+static bool isIstBootCode(uint32_t progressCode)
+{
+    const uint8_t typeClassByte = (progressCode >> 24) & 0xFF;
+    const uint8_t codeType = (typeClassByte >> 6) & 0x03;
+    const uint8_t codeClass = typeClassByte & 0x3F;
+    const uint8_t codeSubClass = (progressCode >> 16) & 0xFF;
+    const uint16_t codeOperation = progressCode & 0xFFFF;
+
+    if (codeType != efiProgressCode ||
+        (codeClass != pscFmcSocketClass0 && codeClass != pscFmcSocketClass1) ||
+        codeSubClass != pscFmcSubClass)
+    {
+        return false;
+    }
+
+    return std::ranges::find(pscFmcIstOperations, codeOperation) !=
+           std::ranges::end(pscFmcIstOperations);
+}
 
 constexpr auto bootProgressService = "xyz.openbmc_project.State.Host";
 constexpr auto bootProgressObject = "/xyz/openbmc_project/state/host0";
@@ -96,6 +124,11 @@ sdbusplus::async::task<void> BootProgressPublisher::update(
             this->value(std::make_tuple(code, timeStampOffset));
 
             latestOem = std::format("0x{:08X}", progressCode);
+
+            if (isIstBootCode(progressCode))
+            {
+                latestOem = "ISTBoot";
+            }
 
             if (cakBootProgressPublisher)
             {
@@ -229,6 +262,14 @@ std::string BootProgressPublisher::getSbmrBootProgressStage(
         {
             return bootProgressPciInit;
         }
+    }
+    // PSC FMC IST boot (socket 0 or socket 1)
+    else if (isIstBootCode(progressCode))
+    {
+        lg2::info("IST boot detected (socket {SOCKET}, operation 0x{OP:04X})",
+                  "SOCKET", codeClass - pscFmcSocketClass0, "OP",
+                  codeOperation);
+        return bootProgressOem;
     }
     // Fallback to OEM if no conditions met
     return bootProgressOem;

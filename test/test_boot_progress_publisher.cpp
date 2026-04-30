@@ -584,4 +584,166 @@ TEST(BootProgressPublisher, FlushWhenOSRunningAlreadySkipsStageUpdate)
     ctx.run();
 }
 
+// IST boot POST code 0xC0C2 (socket 0: 0x70C1C0C2)
+TEST(BootProgressPublisher, IstBootCodeC0C2Socket0_SetsOemStage)
+{
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
+    auto slotcb = [](sd_bus*, sd_bus_slot** slot, auto&&...) {
+        *slot = reinterpret_cast<sd_bus_slot*>(0xbeef);
+        return 0;
+    };
+    EXPECT_CALL(bus_mock, sd_bus_add_object_vtable(IsNull(), _, _, _, _, _))
+        .WillRepeatedly(slotcb);
+
+    sdbusplus::async::context ctx;
+    BootProgressPublisher pub(ctx, std::string(snoopDbus),
+                              std::string(snoopObject));
+    pub.resetCachedState();
+    const uint32_t istCode = 0x70C1C0C2u;
+    std::vector<std::pair<uint32_t, uint32_t>> data = {{100u, istCode}};
+    auto run_update_then_stop =
+        [&ctx, &pub, &data]() -> sdbusplus::async::task<void> {
+        co_await pub.update(data);
+        ctx.request_stop();
+    };
+    ctx.spawn(run_update_then_stop());
+    ctx.run();
+}
+
+// IST boot POST code 0xC0C2 (socket 1: 0x71C1C0C2)
+TEST(BootProgressPublisher, IstBootCodeC0C2Socket1_SetsOemStage)
+{
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
+    auto slotcb = [](sd_bus*, sd_bus_slot** slot, auto&&...) {
+        *slot = reinterpret_cast<sd_bus_slot*>(0xbeef);
+        return 0;
+    };
+    EXPECT_CALL(bus_mock, sd_bus_add_object_vtable(IsNull(), _, _, _, _, _))
+        .WillRepeatedly(slotcb);
+
+    sdbusplus::async::context ctx;
+    BootProgressPublisher pub(ctx, std::string(snoopDbus),
+                              std::string(snoopObject));
+    pub.resetCachedState();
+    const uint32_t istCode = 0x71C1C0C2u;
+    std::vector<std::pair<uint32_t, uint32_t>> data = {{100u, istCode}};
+    auto run_update_then_stop =
+        [&ctx, &pub, &data]() -> sdbusplus::async::task<void> {
+        co_await pub.update(data);
+        ctx.request_stop();
+    };
+    ctx.spawn(run_update_then_stop());
+    ctx.run();
+}
+
+// IST boot POST code 0xC748 (socket 0: 0x70C1C748)
+TEST(BootProgressPublisher, IstBootCodeC748Socket0_SetsOemStage)
+{
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
+    auto slotcb = [](sd_bus*, sd_bus_slot** slot, auto&&...) {
+        *slot = reinterpret_cast<sd_bus_slot*>(0xbeef);
+        return 0;
+    };
+    EXPECT_CALL(bus_mock, sd_bus_add_object_vtable(IsNull(), _, _, _, _, _))
+        .WillRepeatedly(slotcb);
+
+    sdbusplus::async::context ctx;
+    BootProgressPublisher pub(ctx, std::string(snoopDbus),
+                              std::string(snoopObject));
+    pub.resetCachedState();
+    const uint32_t istCode = 0x70C1C748u;
+    std::vector<std::pair<uint32_t, uint32_t>> data = {{100u, istCode}};
+    auto run_update_then_stop =
+        [&ctx, &pub, &data]() -> sdbusplus::async::task<void> {
+        co_await pub.update(data);
+        ctx.request_stop();
+    };
+    ctx.spawn(run_update_then_stop());
+    ctx.run();
+}
+
+// IST boot POST code 0xC748 (socket 1: 0x71C1C748)
+TEST(BootProgressPublisher, IstBootCodeC748Socket1_SetsOemStage)
+{
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
+    auto slotcb = [](sd_bus*, sd_bus_slot** slot, auto&&...) {
+        *slot = reinterpret_cast<sd_bus_slot*>(0xbeef);
+        return 0;
+    };
+    EXPECT_CALL(bus_mock, sd_bus_add_object_vtable(IsNull(), _, _, _, _, _))
+        .WillRepeatedly(slotcb);
+
+    sdbusplus::async::context ctx;
+    BootProgressPublisher pub(ctx, std::string(snoopDbus),
+                              std::string(snoopObject));
+    pub.resetCachedState();
+    const uint32_t istCode = 0x71C1C748u;
+    std::vector<std::pair<uint32_t, uint32_t>> data = {{100u, istCode}};
+    auto run_update_then_stop =
+        [&ctx, &pub, &data]() -> sdbusplus::async::task<void> {
+        co_await pub.update(data);
+        ctx.request_stop();
+    };
+    ctx.spawn(run_update_then_stop());
+    ctx.run();
+}
+
+// IST boot POST code 0xC349 (socket 0: 0x70C1C349)
+TEST(BootProgressPublisher, IstBootCodeC349Socket0_SetsOemStage)
+{
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
+    auto slotcb = [](sd_bus*, sd_bus_slot** slot, auto&&...) {
+        *slot = reinterpret_cast<sd_bus_slot*>(0xbeef);
+        return 0;
+    };
+    EXPECT_CALL(bus_mock, sd_bus_add_object_vtable(IsNull(), _, _, _, _, _))
+        .WillRepeatedly(slotcb);
+
+    sdbusplus::async::context ctx;
+    BootProgressPublisher pub(ctx, std::string(snoopDbus),
+                              std::string(snoopObject));
+    pub.resetCachedState();
+    const uint32_t istCode = 0x70C1C349u;
+    std::vector<std::pair<uint32_t, uint32_t>> data = {{100u, istCode}};
+    auto run_update_then_stop =
+        [&ctx, &pub, &data]() -> sdbusplus::async::task<void> {
+        co_await pub.update(data);
+        ctx.request_stop();
+    };
+    ctx.spawn(run_update_then_stop());
+    ctx.run();
+}
+
+// IST boot POST code 0xC349 (socket 1: 0x71C1C349)
+TEST(BootProgressPublisher, IstBootCodeC349Socket1_SetsOemStage)
+{
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
+    auto slotcb = [](sd_bus*, sd_bus_slot** slot, auto&&...) {
+        *slot = reinterpret_cast<sd_bus_slot*>(0xbeef);
+        return 0;
+    };
+    EXPECT_CALL(bus_mock, sd_bus_add_object_vtable(IsNull(), _, _, _, _, _))
+        .WillRepeatedly(slotcb);
+
+    sdbusplus::async::context ctx;
+    BootProgressPublisher pub(ctx, std::string(snoopDbus),
+                              std::string(snoopObject));
+    pub.resetCachedState();
+    const uint32_t istCode = 0x71C1C349u;
+    std::vector<std::pair<uint32_t, uint32_t>> data = {{100u, istCode}};
+    auto run_update_then_stop =
+        [&ctx, &pub, &data]() -> sdbusplus::async::task<void> {
+        co_await pub.update(data);
+        ctx.request_stop();
+    };
+    ctx.spawn(run_update_then_stop());
+    ctx.run();
+}
+
 } // namespace

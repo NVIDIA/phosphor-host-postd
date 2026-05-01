@@ -30,6 +30,7 @@ class MockPollingDevice : public PollingDevice
   public:
     MOCK_METHOD(bool, readRegisterValue, (uint32_t regAddr, uint32_t& regValue),
                 (override));
+    MOCK_METHOD(bool, doL1Reset, (), (override));
 };
 
 } // namespace phosphor_host_postd_test

@@ -170,12 +170,21 @@ void BootProgressManager::tryPublish()
 sdbusplus::async::task<void> BootProgressManager::periodicPublishCheck()
 {
     const auto publishInterval = std::chrono::seconds(10);
+    // Sleep in small chunks so the coroutine exits promptly when the context
+    // is stopped, rather than waiting up to publishInterval for the timer.
+    const auto sleepChunk = std::chrono::milliseconds(100);
+    std::chrono::milliseconds elapsed{0};
     while (!ctx.stop_requested())
     {
-        co_await sdbusplus::async::sleep_for(ctx, publishInterval);
-        if (publisher)
+        co_await sdbusplus::async::sleep_for(ctx, sleepChunk);
+        elapsed += sleepChunk;
+        if (elapsed >= publishInterval && !ctx.stop_requested())
         {
-            tryPublish();
+            elapsed = std::chrono::milliseconds{0};
+            if (publisher)
+            {
+                tryPublish();
+            }
         }
     }
     co_return;

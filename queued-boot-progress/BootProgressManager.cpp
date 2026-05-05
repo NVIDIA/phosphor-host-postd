@@ -262,16 +262,6 @@ sdbusplus::async::task<> BootProgressManager::doL1Reset()
                 lg2::info(
                     "L1Reset: succeeded on attempt {ATTEMPT} socket {SOCKET}",
                     "ATTEMPT", attempt, "SOCKET", socketId);
-                // sw_main_rst is system-wide: close all handles now so the
-                // poller skips reads while the devices re-enumerate.
-                for (int id : socketIds)
-                {
-                    auto devIt = socketDataMap.find(id);
-                    if (devIt != socketDataMap.end() && devIt->second.device)
-                    {
-                        devIt->second.device->invalidate();
-                    }
-                }
                 success = true;
                 break;
             }

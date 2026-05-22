@@ -632,8 +632,12 @@ TEST_F(BootProgressManagerTest,
     mgr.onDeviceAdded(device, TransportInterface::I2C, 0, 0x50);
 
     bool threw = false;
+    // Name the lambdas so they outlive the spawned coroutines. An immediately
+    // invoked lambda would be destroyed at end of full-expression, but the
+    // coroutine accesses its captures via `this` after each co_await resume —
+    // dangling read flagged by ASan.
     // Start doL1Reset (attempt 1 fails synchronously, then sleeps 100ms)
-    ctx.spawn([&ctx, &mgr, &threw]() -> sdbusplus::async::task<void> {
+    auto resetFn = [&ctx, &mgr, &threw]() -> sdbusplus::async::task<void> {
         co_await sdbusplus::async::sleep_for(ctx,
                                              std::chrono::milliseconds(10));
         try
@@ -645,16 +649,17 @@ TEST_F(BootProgressManagerTest,
             threw = true;
         }
         ctx.request_stop();
-    }());
-
-    // Remove device after attempt 1 completes and during the retry sleep
-    ctx.spawn([&ctx, &mgr]() -> sdbusplus::async::task<void> {
-        // At 10ms+epsilon: doL1Reset entered; at ~10ms+sync: attempt 1 done,
-        // sleeping 100ms. Remove device at 60ms so retries see it gone.
+    };
+    // Remove device after attempt 1 completes and during the retry sleep.
+    // At 10ms+epsilon: doL1Reset entered; at ~10ms+sync: attempt 1 done,
+    // sleeping 100ms. Remove device at 60ms so retries see it gone.
+    auto removeFn = [&ctx, &mgr]() -> sdbusplus::async::task<void> {
         co_await sdbusplus::async::sleep_for(ctx,
                                              std::chrono::milliseconds(60));
         mgr.onDeviceRemoved(TransportInterface::I2C, 0, 0x50);
-    }());
+    };
+    ctx.spawn(resetFn());
+    ctx.spawn(removeFn());
 
     ctx.run();
     EXPECT_TRUE(threw);
@@ -687,8 +692,10 @@ TEST_F(BootProgressManagerTest,
 
     bool secondThrew = false;
 
+    // Name the lambdas so they outlive the spawned coroutines (see comment in
+    // DoL1Reset_DeviceRemovedDuringRetry_CoversContinue).
     // First call: blocks in retry loop (~400ms)
-    ctx.spawn([&ctx, &mgr]() -> sdbusplus::async::task<void> {
+    auto firstFn = [&ctx, &mgr]() -> sdbusplus::async::task<void> {
         co_await sdbusplus::async::sleep_for(ctx,
                                              std::chrono::milliseconds(10));
         try
@@ -697,10 +704,10 @@ TEST_F(BootProgressManagerTest,
         }
         catch (const std::exception&)
         {}
-    }());
-
+    };
     // Second call: waits until first has set resetInProgress_, then sees it
-    ctx.spawn([&ctx, &mgr, &secondThrew]() -> sdbusplus::async::task<void> {
+    auto secondFn = [&ctx, &mgr,
+                     &secondThrew]() -> sdbusplus::async::task<void> {
         // Sleep past the first call's entry so resetInProgress_ is set
         co_await sdbusplus::async::sleep_for(ctx,
                                              std::chrono::milliseconds(30));
@@ -713,7 +720,9 @@ TEST_F(BootProgressManagerTest,
             secondThrew = true;
         }
         ctx.request_stop();
-    }());
+    };
+    ctx.spawn(firstFn());
+    ctx.spawn(secondFn());
 
     ctx.run();
     EXPECT_TRUE(secondThrew);

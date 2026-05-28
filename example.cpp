@@ -18,6 +18,8 @@
 
 #include <cinttypes>
 #include <cstdio>
+#include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <memory>
 
@@ -65,6 +67,7 @@ static void printPostcode(FILE*, postcode_t postcode)
  * updates for the POST code dbus object.
  */
 int main()
+try
 {
     auto ListenBus = sdbusplus::bus::new_default();
     lpcsnoop::SnoopListen snoop(ListenBus, printPostcode);
@@ -76,4 +79,16 @@ int main()
     }
 
     return 0;
+}
+catch (const std::exception& e)
+{
+    std::fprintf(stderr, "lpcsnoop-example: unhandled exception in main: %s\n",
+                 e.what());
+    return EXIT_FAILURE;
+}
+catch (...)
+{
+    std::fprintf(stderr,
+                 "lpcsnoop-example: unknown unhandled exception in main\n");
+    return EXIT_FAILURE;
 }

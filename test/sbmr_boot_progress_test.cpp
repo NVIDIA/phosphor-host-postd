@@ -47,7 +47,7 @@ class SbmrBootProgressTestReporter : public ::testing::Test
     ~SbmrBootProgressTestReporter() {}
 
     NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus::bus bus;
+    sdbusplus::bus_t bus;
 };
 
 TEST_F(SbmrBootProgressTestReporter, testJson)
@@ -265,7 +265,7 @@ class SbmrBootProgressWithErrorLogTest : public ::testing::Test
 
     bool jsonWritten_ = false;
     NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus::bus bus{sdbusplus::get_mocked_new(&bus_mock)};
+    sdbusplus::bus_t bus{sdbusplus::get_mocked_new(&bus_mock)};
 };
 
 // bootErrorCode with valid errorLog and tsUS==0 → enters errorLog block,

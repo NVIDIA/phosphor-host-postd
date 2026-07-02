@@ -278,6 +278,25 @@ test(
 )
 
 test(
+    'test_dbus_property_access',
+    executable(
+        'test_dbus_property_access',
+        'test_dbus_property_access.cpp',
+        '../queued-boot-progress/dbus_utils.cpp',
+        include_directories: postd_headers,
+        implicit_include_directories: false,
+        dependencies: [
+            gtest,
+            gtest_main,
+            gmock,
+            phosphor_dbus_interfaces,
+            sdbusplus,
+            phosphor_logging,
+        ],
+    ),
+)
+
+test(
     'test_cak_boot_progress_publisher',
     executable(
         'test_cak_boot_progress_publisher',

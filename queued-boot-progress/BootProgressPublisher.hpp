@@ -17,6 +17,7 @@
 #pragma once
 
 #include "CakBootProgressPublisher.hpp"
+#include "dbus_utils.hpp"
 #include "lpcsnoop/snoop.hpp"
 
 #include <sdbusplus/async.hpp>
@@ -34,6 +35,7 @@ class BootProgressPublisher : public PostObject
     BootProgressPublisher(
         sdbusplus::async::context& ctx, const std::string& snoopDbus,
         const std::string& snoopObject,
+        std::shared_ptr<IDbusPropertyAccess> dbusAccess,
         std::shared_ptr<CakBootProgressPublisher> cakPublisher = nullptr);
 
     sdbusplus::async::task<void> update(
@@ -42,7 +44,6 @@ class BootProgressPublisher : public PostObject
     void resetCachedState();
 
   private:
-    sdbusplus::async::context& ctx;
     // Cache last published values to avoid redundant D-Bus updates
     std::string lastPublishedStage;
     std::string lastPublishedOem;
@@ -53,6 +54,7 @@ class BootProgressPublisher : public PostObject
     static constexpr uint32_t dbusUpdateIntervalMs = 100;
 
     std::shared_ptr<CakBootProgressPublisher> cakBootProgressPublisher;
+    std::shared_ptr<IDbusPropertyAccess> dbusAccess;
 
     sdbusplus::async::task<void> updateBootProgressProperty(
         const std::string& progressStage);

@@ -22,6 +22,7 @@
 #include "I2CPollingDevice.hpp"
 #include "PollingDevice.hpp"
 #include "USBPollingDevice.hpp"
+#include "dbus_utils.hpp"
 #include "lpcsnoop/snoop.hpp"
 #ifdef ENABLE_L1RESET
 #include "L1ResetHandler.hpp"
@@ -46,8 +47,10 @@ int main(int argc, char* argv[])
             std::make_shared<CakBootProgressPublisher>(ctx, config.cakCpuCount);
     }
 
+    auto dbusAccess = std::make_shared<DbusPropertyAccess>(ctx);
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject), cakPublisher);
+        ctx, std::string(snoopDbus), std::string(snoopObject), dbusAccess,
+        cakPublisher);
     auto bootProgressManager = std::make_shared<BootProgressManager>(
         ctx, publisher, config.pollInterval);
 
@@ -85,8 +88,7 @@ int main(int argc, char* argv[])
     lg2::info("L1Reset: D-Bus interface registered");
 #endif
 
-    Application application(ctx, config, bootProgressManager,
-                            makeDefaultDbusPropertyAccess(ctx));
+    Application application(ctx, config, bootProgressManager, dbusAccess);
 
     ctx.spawn(application.initialize());
 

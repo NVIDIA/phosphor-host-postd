@@ -17,14 +17,20 @@
 #include "lpcsnoop/snoop.hpp"
 #include "mock_device_factory.hpp"
 #include "mock_polling_device.hpp"
+#include "null_property_access.hpp"
 #include "queued-boot-progress/BootProgressManager.hpp"
 #include "queued-boot-progress/BootProgressPublisher.hpp"
+
+#include <fcntl.h>
+#include <unistd.h>
 
 #include <sdbusplus/async.hpp>
 #include <sdbusplus/test/sdbus_mock.hpp>
 #include <xyz/openbmc_project/Common/error.hpp>
 
+#include <cerrno>
 #include <chrono>
+#include <system_error>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -37,6 +43,26 @@ using namespace phosphor_host_postd_test;
 
 namespace
 {
+
+/* sd_event_add_io rejects regular files (e.g. /dev/null on CI). Mock
+ * sd_bus_get_fd to return a real pipe read-end so context construction
+ * succeeds; the pipe is closed after the context is destroyed. */
+struct PipeFdGuard
+{
+    int fd[2];
+    PipeFdGuard()
+    {
+        if (pipe2(fd, O_CLOEXEC) != 0)
+        {
+            throw std::system_error(errno, std::generic_category(), "pipe2");
+        }
+    }
+    ~PipeFdGuard()
+    {
+        close(fd[0]);
+        close(fd[1]);
+    }
+};
 
 static void setupBusMock(NiceMock<sdbusplus::SdBusMock>& bus_mock)
 {
@@ -57,19 +83,22 @@ class BootProgressManagerTest : public ::testing::Test
 
     void SetUp() override
     {
+        ON_CALL(bus_mock, sd_bus_get_fd(_)).WillByDefault(Return(pipe.fd[0]));
         setupBusMock(bus_mock);
         setInjectedPollingDevice(nullptr);
     }
 
+    PipeFdGuard pipe;
     NiceMock<sdbusplus::SdBusMock> bus_mock;
     sdbusplus::bus_t bus;
 };
 
 TEST_F(BootProgressManagerTest, ConstructWithPublisherAndPollInterval)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     std::chrono::milliseconds pollInterval(100);
     BootProgressManager mgr(ctx, publisher, pollInterval);
     (void)mgr;
@@ -79,9 +108,10 @@ TEST_F(BootProgressManagerTest, ConstructWithPublisherAndPollInterval)
 
 TEST_F(BootProgressManagerTest, OnBootProgressDataWithEmptyMapDoesNotCrash)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     std::vector<std::pair<uint32_t, uint32_t>> entries = {{1000u, 0x01u}};
     mgr.onBootProgressData(0, entries);
@@ -91,9 +121,10 @@ TEST_F(BootProgressManagerTest, OnBootProgressDataWithEmptyMapDoesNotCrash)
 
 TEST_F(BootProgressManagerTest, OnBootProgressDataWithEmptyEntriesReturnsEarly)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     std::vector<std::pair<uint32_t, uint32_t>> emptyEntries;
     mgr.onBootProgressData(0, emptyEntries);
@@ -103,9 +134,10 @@ TEST_F(BootProgressManagerTest, OnBootProgressDataWithEmptyEntriesReturnsEarly)
 
 TEST_F(BootProgressManagerTest, UpdatePollIntervalWithEmptyMapDoesNotCrash)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     mgr.updatePollInterval(std::chrono::milliseconds(200));
     ctx.request_stop();
@@ -114,9 +146,10 @@ TEST_F(BootProgressManagerTest, UpdatePollIntervalWithEmptyMapDoesNotCrash)
 
 TEST_F(BootProgressManagerTest, UpdatePollStatusWithEmptyMapDoesNotCrash)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     mgr.updatePollStatus(false);
     mgr.updatePollStatus(true);
@@ -126,9 +159,10 @@ TEST_F(BootProgressManagerTest, UpdatePollStatusWithEmptyMapDoesNotCrash)
 
 TEST_F(BootProgressManagerTest, InitIndicesWithEmptyMapDoesNotCrash)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     mgr.initIndices();
     ctx.request_stop();
@@ -137,9 +171,10 @@ TEST_F(BootProgressManagerTest, InitIndicesWithEmptyMapDoesNotCrash)
 
 TEST_F(BootProgressManagerTest, ResetPublisherCachedState)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     mgr.resetPublisherCachedState();
     ctx.request_stop();
@@ -148,9 +183,10 @@ TEST_F(BootProgressManagerTest, ResetPublisherCachedState)
 
 TEST_F(BootProgressManagerTest, OnDeviceRemovedWhenSocketNotFoundReturnsEarly)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     mgr.onDeviceRemoved(TransportInterface::I2C, 0, 0x50);
     ctx.request_stop();
@@ -159,9 +195,10 @@ TEST_F(BootProgressManagerTest, OnDeviceRemovedWhenSocketNotFoundReturnsEarly)
 
 TEST_F(BootProgressManagerTest, OnDeviceAddedWithNullDeviceReturnsEarly)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     mgr.onDeviceAdded(nullptr, TransportInterface::I2C, 0, 0x50);
     ctx.request_stop();
@@ -178,9 +215,10 @@ TEST_F(BootProgressManagerTest, OnDeviceAddedI2CCreatesPollerAndTryPublishPath)
         });
     setInjectedPollingDevice(mockDevice);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
     mgr.onDeviceAdded(device, TransportInterface::I2C, 0, 0x50);
@@ -200,9 +238,10 @@ TEST_F(BootProgressManagerTest,
         });
     setInjectedPollingDevice(mockDevice);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
     mgr.onDeviceAdded(device, TransportInterface::I2C, 0, 0x50);
@@ -221,9 +260,10 @@ TEST_F(BootProgressManagerTest, OnBootProgressDataSocketIdNotInMapLogsWarning)
         });
     setInjectedPollingDevice(mockDevice);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
     mgr.onDeviceAdded(device, TransportInterface::I2C, 0, 0x50);
@@ -235,9 +275,10 @@ TEST_F(BootProgressManagerTest, OnBootProgressDataSocketIdNotInMapLogsWarning)
 
 TEST_F(BootProgressManagerTest, OnDeviceAddedWhenGetPollingDeviceFailsLogsError)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
     mgr.onDeviceAdded(device, TransportInterface::I2C, 0, 0x50);
@@ -247,7 +288,7 @@ TEST_F(BootProgressManagerTest, OnDeviceAddedWhenGetPollingDeviceFailsLogsError)
 
 TEST_F(BootProgressManagerTest, ConstructWithNullPublisherRunsWithoutCrash)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     BootProgressManager mgr(ctx, nullptr, std::chrono::milliseconds(100));
     ctx.request_stop();
     ctx.run();
@@ -255,7 +296,7 @@ TEST_F(BootProgressManagerTest, ConstructWithNullPublisherRunsWithoutCrash)
 
 TEST_F(BootProgressManagerTest, ResetPublisherCachedStateWithNullPublisher)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     BootProgressManager mgr(ctx, nullptr, std::chrono::milliseconds(100));
     mgr.resetPublisherCachedState();
     ctx.request_stop();
@@ -269,6 +310,7 @@ class BootProgressManagerWithDeviceTest : public ::testing::Test
 
     void SetUp() override
     {
+        ON_CALL(bus_mock, sd_bus_get_fd(_)).WillByDefault(Return(pipe.fd[0]));
         setupBusMock(bus_mock);
         mock_device = std::make_shared<MockPollingDevice>();
         EXPECT_CALL(*mock_device, readRegisterValue(_, _))
@@ -284,6 +326,7 @@ class BootProgressManagerWithDeviceTest : public ::testing::Test
         setInjectedPollingDevice(nullptr);
     }
 
+    PipeFdGuard pipe;
     NiceMock<sdbusplus::SdBusMock> bus_mock;
     std::shared_ptr<MockPollingDevice> mock_device;
 };
@@ -291,9 +334,10 @@ class BootProgressManagerWithDeviceTest : public ::testing::Test
 TEST_F(BootProgressManagerWithDeviceTest,
        OnDeviceAddedSuccessThenOnBootProgressDataCallsTryPublish)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -307,7 +351,7 @@ TEST_F(BootProgressManagerWithDeviceTest,
 TEST_F(BootProgressManagerWithDeviceTest,
        OnBootProgressDataWithNullPublisherDoesNotCallTryPublish)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     BootProgressManager mgr(ctx, nullptr, std::chrono::milliseconds(100));
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
     mgr.onDeviceAdded(device, TransportInterface::I2C, 0, 0x50);
@@ -318,9 +362,10 @@ TEST_F(BootProgressManagerWithDeviceTest,
 
 TEST_F(BootProgressManagerWithDeviceTest, UpdatePollIntervalWithNonEmptyMap)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -333,9 +378,10 @@ TEST_F(BootProgressManagerWithDeviceTest, UpdatePollIntervalWithNonEmptyMap)
 
 TEST_F(BootProgressManagerWithDeviceTest, UpdatePollStatusWithNonEmptyMap)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -349,9 +395,10 @@ TEST_F(BootProgressManagerWithDeviceTest, UpdatePollStatusWithNonEmptyMap)
 
 TEST_F(BootProgressManagerWithDeviceTest, InitIndicesWithNonEmptyMap)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -364,9 +411,10 @@ TEST_F(BootProgressManagerWithDeviceTest, InitIndicesWithNonEmptyMap)
 
 TEST_F(BootProgressManagerWithDeviceTest, OnDeviceRemovedSuccessPath)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -375,8 +423,7 @@ TEST_F(BootProgressManagerWithDeviceTest, OnDeviceRemovedSuccessPath)
     // Defer removal so the poller's coroutine runs once and captures
     // shared_from_this(); otherwise erasing the poller causes use-after-free.
     auto remove_then_stop = [&ctx, &mgr]() -> sdbusplus::async::task<void> {
-        co_await sdbusplus::async::sleep_for(ctx,
-                                             std::chrono::milliseconds(10));
+        co_await sdbusplus::async::sleep_for(ctx, std::chrono::milliseconds(0));
         mgr.onDeviceRemoved(TransportInterface::I2C, 0, 0x50);
         ctx.request_stop();
     };
@@ -387,9 +434,10 @@ TEST_F(BootProgressManagerWithDeviceTest, OnDeviceRemovedSuccessPath)
 TEST_F(BootProgressManagerWithDeviceTest,
        OnBootProgressDataSuccessPathMultipleEntries)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -403,9 +451,10 @@ TEST_F(BootProgressManagerWithDeviceTest,
 TEST_F(BootProgressManagerTest,
        PeriodicPublishCheckWithEmptyMapCallsTryPublishEmpty)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     ctx.request_stop();
@@ -417,9 +466,10 @@ TEST_F(BootProgressManagerTest,
 TEST_F(BootProgressManagerWithDeviceTest,
        PeriodicPublishCheckWithDeviceButNoDataCallsTryPublishEmpty)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -433,9 +483,10 @@ TEST_F(BootProgressManagerWithDeviceTest,
 TEST_F(BootProgressManagerWithDeviceTest,
        OnDeviceRemovedUSBWithSingleDeviceCallsResetPublisherCachedState)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::USB, 0, 0x50);
@@ -446,8 +497,7 @@ TEST_F(BootProgressManagerWithDeviceTest,
     // destroy it before the queued coroutine runs (use-after-free in
     // ctx.run()).
     auto remove_then_stop = [&ctx, &mgr]() -> sdbusplus::async::task<void> {
-        co_await sdbusplus::async::sleep_for(ctx,
-                                             std::chrono::milliseconds(10));
+        co_await sdbusplus::async::sleep_for(ctx, std::chrono::milliseconds(0));
         mgr.onDeviceRemoved(TransportInterface::USB, 0, 0x50);
         ctx.request_stop();
     };
@@ -473,9 +523,10 @@ TEST_F(BootProgressManagerWithDeviceTest,
             return true;
         });
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     setInjectedPollingDevice(mock1);
@@ -497,9 +548,10 @@ TEST_F(BootProgressManagerWithDeviceTest,
 // Branch: doL1Reset() with empty socketDataMap throws Unavailable
 TEST_F(BootProgressManagerTest, DoL1Reset_EmptySocketMap_ThrowsUnavailable)
 {
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     bool threw = false;
@@ -536,9 +588,10 @@ TEST_F(BootProgressManagerTest, DoL1Reset_DeviceSucceeds_ReturnsCleanly)
     EXPECT_CALL(*mockDevice, doL1Reset()).WillOnce(Return(true));
     setInjectedPollingDevice(mockDevice);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -546,8 +599,7 @@ TEST_F(BootProgressManagerTest, DoL1Reset_DeviceSucceeds_ReturnsCleanly)
 
     bool succeeded = false;
     auto fn = [&ctx, &mgr, &succeeded]() -> sdbusplus::async::task<void> {
-        co_await sdbusplus::async::sleep_for(ctx,
-                                             std::chrono::milliseconds(10));
+        co_await sdbusplus::async::sleep_for(ctx, std::chrono::milliseconds(0));
         try
         {
             co_await mgr.doL1Reset();
@@ -577,9 +629,10 @@ TEST_F(BootProgressManagerTest, DoL1Reset_AllAttemptsFail_ThrowsInternalFailure)
     EXPECT_CALL(*mockDevice, doL1Reset()).WillRepeatedly(Return(false));
     setInjectedPollingDevice(mockDevice);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -623,9 +676,10 @@ TEST_F(BootProgressManagerTest,
     EXPECT_CALL(*mockDevice, doL1Reset()).WillRepeatedly(Return(false));
     setInjectedPollingDevice(mockDevice);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);
@@ -677,9 +731,10 @@ TEST_F(BootProgressManagerTest,
     EXPECT_CALL(*mockDevice, doL1Reset()).WillRepeatedly(Return(false));
     setInjectedPollingDevice(mockDevice);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     BootProgressManager mgr(ctx, publisher, std::chrono::milliseconds(100));
 
     auto device = getPollingDevice(TransportInterface::I2C, 0, 0x50);

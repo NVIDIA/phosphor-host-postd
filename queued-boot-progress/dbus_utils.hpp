@@ -59,8 +59,28 @@ struct IDbusPropertyAccess
     virtual sdbusplus::async::task<PropertiesChangedTuple>
         waitForPropertiesChanged(const std::string& path,
                                  const std::string& interface) = 0;
+    virtual sdbusplus::async::task<void> setProperty(
+        const char* service, const char* path, const char* interface,
+        const char* property, const std::string& value) = 0;
+    virtual sdbusplus::async::task<void> setProperty(
+        const char* service, const char* path, const char* interface,
+        const char* property, uint64_t value) = 0;
     virtual ~IDbusPropertyAccess() = default;
 };
 
-std::shared_ptr<IDbusPropertyAccess> makeDefaultDbusPropertyAccess(
-    sdbusplus::async::context& ctx);
+struct DbusPropertyAccess : IDbusPropertyAccess
+{
+    explicit DbusPropertyAccess(sdbusplus::async::context& c) : ctx(c) {}
+    sdbusplus::async::task<std::string> getProperty(
+        const char* service, const char* path, const char* interface,
+        const char* property) override;
+    sdbusplus::async::task<PropertiesChangedTuple> waitForPropertiesChanged(
+        const std::string& path, const std::string& interface) override;
+    sdbusplus::async::task<void> setProperty(
+        const char* service, const char* path, const char* interface,
+        const char* property, const std::string& value) override;
+    sdbusplus::async::task<void> setProperty(
+        const char* service, const char* path, const char* interface,
+        const char* property, uint64_t value) override;
+    sdbusplus::async::context& ctx;
+};

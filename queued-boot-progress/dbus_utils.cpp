@@ -43,29 +43,30 @@ sdbusplus::async::task<PropertiesChangedTuple> waitForDbusPropertiesChanged(
               std::tuple_element_t<2, PropertiesChangedTuple>>();
 }
 
-std::shared_ptr<IDbusPropertyAccess> makeDefaultDbusPropertyAccess(
-    sdbusplus::async::context& ctx)
+sdbusplus::async::task<std::string> DbusPropertyAccess::getProperty(
+    const char* service, const char* path, const char* interface,
+    const char* property)
 {
-    struct DefaultImpl : IDbusPropertyAccess
-    {
-        explicit DefaultImpl(sdbusplus::async::context& c) : ctx(c) {}
+    co_return co_await getDbusProperty(ctx, service, path, interface, property);
+}
 
-        sdbusplus::async::task<std::string> getProperty(
-            const char* service, const char* path, const char* interface,
-            const char* property) override
-        {
-            co_return co_await getDbusProperty(ctx, service, path, interface,
-                                               property);
-        }
+sdbusplus::async::task<PropertiesChangedTuple>
+    DbusPropertyAccess::waitForPropertiesChanged(const std::string& path,
+                                                 const std::string& interface)
+{
+    co_return co_await waitForDbusPropertiesChanged(ctx, path, interface);
+}
 
-        sdbusplus::async::task<PropertiesChangedTuple> waitForPropertiesChanged(
-            const std::string& path, const std::string& interface) override
-        {
-            co_return co_await waitForDbusPropertiesChanged(ctx, path,
-                                                            interface);
-        }
+sdbusplus::async::task<void> DbusPropertyAccess::setProperty(
+    const char* service, const char* path, const char* interface,
+    const char* property, const std::string& value)
+{
+    co_await setDbusProperty(ctx, service, path, interface, property, value);
+}
 
-        sdbusplus::async::context& ctx;
-    };
-    return std::make_shared<DefaultImpl>(ctx);
+sdbusplus::async::task<void> DbusPropertyAccess::setProperty(
+    const char* service, const char* path, const char* interface,
+    const char* property, uint64_t value)
+{
+    co_await setDbusProperty(ctx, service, path, interface, property, value);
 }

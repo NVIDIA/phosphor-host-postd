@@ -16,17 +16,23 @@
  */
 
 #include "lpcsnoop/snoop.hpp"
+#include "null_property_access.hpp"
 #include "polling_device_factory.hpp"
 #include "queued-boot-progress/BootProgressManager.hpp"
 #include "queued-boot-progress/BootProgressPublisher.hpp"
 #include "queued-boot-progress/PollingDevice.hpp"
 #include "queued-boot-progress/USBPollingDevice.hpp"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <sdbusplus/async.hpp>
 #include <sdbusplus/test/sdbus_mock.hpp>
 
+#include <cerrno>
 #include <chrono>
 #include <memory>
+#include <system_error>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -34,17 +40,39 @@
 using ::testing::_;
 using ::testing::IsNull;
 using ::testing::NiceMock;
+using ::testing::Return;
 
 namespace
 {
+
+struct PipeFdGuard
+{
+    int fd[2];
+    PipeFdGuard()
+    {
+        if (pipe2(fd, O_CLOEXEC) != 0)
+        {
+            throw std::system_error(errno, std::generic_category(), "pipe2");
+        }
+    }
+    ~PipeFdGuard()
+    {
+        close(fd[0]);
+        close(fd[1]);
+    }
+};
 
 class USBPollingDeviceTest : public ::testing::Test
 {
   protected:
     USBPollingDeviceTest() :
         bus_mock(), bus(sdbusplus::get_mocked_new(&bus_mock))
-    {}
+    {
+        EXPECT_CALL(bus_mock, sd_bus_get_fd(_))
+            .WillRepeatedly(Return(pipe.fd[0]));
+    }
 
+    PipeFdGuard pipe;
     NiceMock<sdbusplus::SdBusMock> bus_mock;
     sdbusplus::bus_t bus;
 };
@@ -77,9 +105,10 @@ TEST_F(USBPollingDeviceTest, GetPollingDeviceEnumeratorUSBReturnsNonNull)
     EXPECT_CALL(bus_mock, sd_bus_add_object_vtable(IsNull(), _, _, _, _, _))
         .WillRepeatedly(slotcb);
 
-    sdbusplus::async::context ctx;
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
 

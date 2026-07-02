@@ -16,10 +16,15 @@
  */
 #include "queued-boot-progress/CakBootProgressPublisher.hpp"
 
+#include <fcntl.h>
+#include <unistd.h>
+
 #include <sdbusplus/async.hpp>
 #include <sdbusplus/test/sdbus_mock.hpp>
 
+#include <cerrno>
 #include <memory>
+#include <system_error>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -27,6 +32,7 @@
 using ::testing::_;
 using ::testing::IsNull;
 using ::testing::NiceMock;
+using ::testing::Return;
 
 namespace
 {
@@ -53,87 +59,97 @@ static void runContextUntilStop(sdbusplus::async::context* ctx)
     ctx->run();
 }
 
-TEST(CakBootProgressPublisher, ConstructWithZeroCpuCount)
+/* sd_event_add_io rejects regular files (e.g. /dev/null on CI). Mock
+ * sd_bus_get_fd to return a real pipe read-end so context construction
+ * succeeds; the pipe is closed after the context is destroyed. */
+struct PipeFdGuard
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
+    int fd[2];
+    PipeFdGuard()
+    {
+        if (pipe2(fd, O_CLOEXEC) != 0)
+        {
+            throw std::system_error(errno, std::generic_category(), "pipe2");
+        }
+    }
+    ~PipeFdGuard()
+    {
+        close(fd[0]);
+        close(fd[1]);
+    }
+};
 
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+/* Fixture shared by all CakBootProgressPublisher tests.
+ * Members are declared in construction order; destruction is the reverse,
+ * so ctx is destroyed before bus_mock and pipe. */
+class CakTest : public ::testing::Test
+{
+  protected:
+    void SetUp() override
+    {
+        EXPECT_CALL(bus_mock, sd_bus_get_fd(_))
+            .WillRepeatedly(Return(pipe.fd[0]));
+        setupBusMock(bus_mock);
+        ctx = std::make_unique<sdbusplus::async::context>(
+            sdbusplus::get_mocked_new(&bus_mock));
+    }
+
+    void TearDown() override
+    {
+        ctx.reset();
+    }
+
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    std::unique_ptr<sdbusplus::async::context> ctx;
+};
+
+TEST_F(CakTest, ConstructWithZeroCpuCount)
+{
     CakBootProgressPublisher cak(*ctx, 0);
     cak.resetCachedState();
     cak.onProgressCode(0x70C0C001u);
     runContextUntilStop(ctx.get());
 }
 
-TEST(CakBootProgressPublisher, ConstructWithOneCpu)
+TEST_F(CakTest, ConstructWithOneCpu)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     runContextUntilStop(ctx.get());
 }
 
-TEST(CakBootProgressPublisher, ResetCachedStateWithNonZeroCpu)
+TEST_F(CakTest, ResetCachedStateWithNonZeroCpu)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     cak.resetCachedState();
     runContextUntilStop(ctx.get());
 }
 
-TEST(CakBootProgressPublisher, OnProgressCodeCpu0BootStart)
+TEST_F(CakTest, OnProgressCodeCpu0BootStart)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     cak.onProgressCode(0x70C0C001u);
     runContextUntilStop(ctx.get());
 }
 
-TEST(CakBootProgressPublisher, OnProgressCodeCakEnterThenExit)
+TEST_F(CakTest, OnProgressCodeCakEnterThenExit)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     cak.onProgressCode(0x70C1C08Au);
     cak.onProgressCode(0x70C1C089u);
     runContextUntilStop(ctx.get());
 }
 
-TEST(CakBootProgressPublisher, OnProgressCodeCpu1BootStart)
+TEST_F(CakTest, OnProgressCodeCpu1BootStart)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 2);
     cak.onProgressCode(0x71C0C001u);
     runContextUntilStop(ctx.get());
 }
 
 // Branch: publishCakStageFromStates all Complete
-TEST(CakBootProgressPublisher, PublishCakStageFromStatesAllComplete)
+TEST_F(CakTest, PublishCakStageFromStatesAllComplete)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 2);
     cak.onProgressCode(0x70C1C08Au);
     cak.onProgressCode(0x70C1C089u);
@@ -143,13 +159,8 @@ TEST(CakBootProgressPublisher, PublishCakStageFromStatesAllComplete)
 }
 
 // Branch: publishCakStageFromStates all Waiting
-TEST(CakBootProgressPublisher, PublishCakStageFromStatesAllWaiting)
+TEST_F(CakTest, PublishCakStageFromStatesAllWaiting)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 2);
     cak.onProgressCode(0x70C1C08Au);
     cak.onProgressCode(0x71C1C08Au);
@@ -157,26 +168,16 @@ TEST(CakBootProgressPublisher, PublishCakStageFromStatesAllWaiting)
 }
 
 // Branch: publishCakStageFromStates mixed -> EarlyBoot
-TEST(CakBootProgressPublisher, PublishCakStageFromStatesMixedEarlyBoot)
+TEST_F(CakTest, PublishCakStageFromStatesMixedEarlyBoot)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 2);
     cak.onProgressCode(0x70C1C08Au);
     runContextUntilStop(ctx.get());
 }
 
 // Branch: updateCakState when cpuIndex >= cakCpuStages.size() (no-op)
-TEST(CakBootProgressPublisher, OnProgressCodeCpuIndexOutOfRangeIgnored)
+TEST_F(CakTest, OnProgressCodeCpuIndexOutOfRangeIgnored)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     cak.onProgressCode(0x71C1C08Au);
     cak.onProgressCode(0x71C1C089u);
@@ -184,27 +185,16 @@ TEST(CakBootProgressPublisher, OnProgressCodeCpuIndexOutOfRangeIgnored)
 }
 
 // Branch: updateCakState unknown progress code returns early
-TEST(CakBootProgressPublisher, OnProgressCodeUnknownCodeIgnored)
+TEST_F(CakTest, OnProgressCodeUnknownCodeIgnored)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     cak.onProgressCode(0x12345678u);
     runContextUntilStop(ctx.get());
 }
 
 // Branch: publishCakStageIfChanged when stage == lastPublishedStage (no update)
-TEST(CakBootProgressPublisher,
-     OnProgressCodeSameStageTwice_SecondCallSkipsPublish)
+TEST_F(CakTest, OnProgressCodeSameStageTwice_SecondCallSkipsPublish)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     cak.onProgressCode(0x70C0C001u); // EarlyBoot
     cak.onProgressCode(
@@ -214,13 +204,8 @@ TEST(CakBootProgressPublisher,
 
 // Branch: updateCakState cpu0BootStart when cpuIndex < size (and
 // publishCakStageFromStates)
-TEST(CakBootProgressPublisher, OnProgressCodeCpu0BootStartWithTwoCpus)
+TEST_F(CakTest, OnProgressCodeCpu0BootStartWithTwoCpus)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 2);
     cak.onProgressCode(0x70C0C001u);
     cak.onProgressCode(0x71C0C001u);

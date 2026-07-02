@@ -85,9 +85,11 @@ constexpr auto bootProgressInf = "xyz.openbmc_project.State.Boot.Progress";
 BootProgressPublisher::BootProgressPublisher(
     sdbusplus::async::context& ctx, const std::string& snoopDbus,
     const std::string& snoopObject,
+    std::shared_ptr<IDbusPropertyAccess> dbusAccess,
     std::shared_ptr<CakBootProgressPublisher> cakPublisher) :
-    PostObject(ctx.get_bus(), snoopObject.c_str()), ctx(ctx),
-    cakBootProgressPublisher(std::move(cakPublisher))
+    PostObject(ctx.get_bus(), snoopObject.c_str()),
+    cakBootProgressPublisher(std::move(cakPublisher)),
+    dbusAccess(std::move(dbusAccess))
 {
     this->emit_object_added();
     ctx.get_bus().request_name(snoopDbus.c_str());
@@ -284,8 +286,9 @@ sdbusplus::async::task<void> BootProgressPublisher::updateBootProgressProperty(
 
     try
     {
-        co_await setDbusProperty(ctx, bootProgressService, bootProgressObject,
-                                 bootProgressInf, "BootProgress", stage);
+        co_await dbusAccess->setProperty(bootProgressService,
+                                         bootProgressObject, bootProgressInf,
+                                         "BootProgress", stage);
     }
     catch (const std::exception& e)
     {
@@ -302,9 +305,9 @@ sdbusplus::async::task<void>
 {
     try
     {
-        co_await setDbusProperty(ctx, bootProgressService, bootProgressObject,
-                                 bootProgressInf, "BootProgressLastUpdate",
-                                 bootProgressLastUpdate);
+        co_await dbusAccess->setProperty(
+            bootProgressService, bootProgressObject, bootProgressInf,
+            "BootProgressLastUpdate", bootProgressLastUpdate);
     }
     catch (const std::exception& e)
     {
@@ -321,9 +324,9 @@ sdbusplus::async::task<void>
 {
     try
     {
-        co_await setDbusProperty(ctx, bootProgressService, bootProgressObject,
-                                 bootProgressInf, "BootProgressOem",
-                                 oemLastState);
+        co_await dbusAccess->setProperty(bootProgressService,
+                                         bootProgressObject, bootProgressInf,
+                                         "BootProgressOem", oemLastState);
     }
     catch (const std::exception& e)
     {

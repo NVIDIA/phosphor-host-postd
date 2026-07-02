@@ -15,32 +15,59 @@
  * limitations under the License.
  */
 #include "lpcsnoop/snoop.hpp"
+#include "null_property_access.hpp"
 #include "queued-boot-progress/BootProgressApplication.hpp"
 #include "queued-boot-progress/BootProgressManager.hpp"
 #include "queued-boot-progress/BootProgressPublisher.hpp"
 
+#include <fcntl.h>
 #include <systemd/sd-bus.h>
+#include <unistd.h>
 
 #include <sdbusplus/async.hpp>
 #include <sdbusplus/bus.hpp>
 #include <sdbusplus/message.hpp>
 #include <sdbusplus/sdbus.hpp>
 #include <sdbusplus/slot.hpp>
+#include <sdbusplus/test/sdbus_mock.hpp>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string_view>
+#include <system_error>
 #include <thread>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+using ::testing::_;
+using ::testing::NiceMock;
+using ::testing::Return;
+
 namespace
 {
+
+struct PipeFdGuard
+{
+    int fd[2];
+    PipeFdGuard()
+    {
+        if (pipe2(fd, O_CLOEXEC) != 0)
+        {
+            throw std::system_error(errno, std::generic_category(), "pipe2");
+        }
+    }
+    ~PipeFdGuard()
+    {
+        close(fd[0]);
+        close(fd[1]);
+    }
+};
 
 /** Fake D-Bus access for tests; configurable getProperty and
  * waitForPropertiesChanged. */
@@ -116,6 +143,18 @@ class FakeDbusPropertyAccess : public IDbusPropertyAccess
         }
         co_await sdbusplus::async::sleep_for(ctx, std::chrono::milliseconds(1));
         co_return PropertiesChangedTuple{std::string{}, {}, {}};
+    }
+
+    sdbusplus::async::task<void> setProperty(const char*, const char*,
+                                             const char*, const char*,
+                                             const std::string&) override
+    {
+        co_return;
+    }
+    sdbusplus::async::task<void> setProperty(
+        const char*, const char*, const char*, const char*, uint64_t) override
+    {
+        co_return;
     }
 
   private:
@@ -312,9 +351,13 @@ TEST(BootProgressApplication, DbusConstants)
 
 TEST(BootProgressApplication, IsHostPowerStateOff_WhenOff)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -330,9 +373,13 @@ TEST(BootProgressApplication, IsHostPowerStateOff_WhenOff)
 
 TEST(BootProgressApplication, IsHostPowerStateOff_WhenRunning)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -346,9 +393,13 @@ TEST(BootProgressApplication, IsHostPowerStateOff_WhenRunning)
 
 TEST(BootProgressApplication, IsHostPowerStateOff_WhenQuiesced)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -362,9 +413,13 @@ TEST(BootProgressApplication, IsHostPowerStateOff_WhenQuiesced)
 
 TEST(BootProgressApplication, IsHostPowerStateOff_WhenTransitioning)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -378,9 +433,13 @@ TEST(BootProgressApplication, IsHostPowerStateOff_WhenTransitioning)
 
 TEST(BootProgressApplication, IsHostPowerStateOff_WhenEmpty)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -395,9 +454,14 @@ TEST(BootProgressApplication, IsHostPowerStateOff_WhenEmpty)
 
 TEST(BootProgressApplication, GetInitialOsStateSuccessLogsState)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -418,9 +482,14 @@ TEST(BootProgressApplication, GetInitialOsStateSuccessLogsState)
 
 TEST(BootProgressApplication, GetInitialHostPowerStateSuccessLogsState)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -441,9 +510,14 @@ TEST(BootProgressApplication, GetInitialHostPowerStateSuccessLogsState)
 
 TEST(BootProgressApplication, GetInitialBootProgressSuccessLogsState)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -464,9 +538,13 @@ TEST(BootProgressApplication, GetInitialBootProgressSuccessLogsState)
 
 TEST(BootProgressApplication, UpdatePollIntervalWhenHostOffDisablesPolling)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -481,9 +559,14 @@ TEST(BootProgressApplication, UpdatePollIntervalWhenHostOffDisablesPolling)
 
 TEST(BootProgressApplication, Initialize_GetPropertyOsStateThrows_LogsError)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -505,9 +588,14 @@ TEST(BootProgressApplication, Initialize_GetPropertyOsStateThrows_LogsError)
 TEST(BootProgressApplication,
      Initialize_GetPropertyBootProgressThrows_ClearsState)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -529,9 +617,14 @@ TEST(BootProgressApplication,
 // Branch: monitor loops catch block when waitForPropertiesChanged throws
 TEST(BootProgressApplication, MonitorLoop_WhenWaitThrows_LogsAndContinues)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -555,9 +648,13 @@ TEST(BootProgressApplication, MonitorLoop_WhenWaitThrows_LogsAndContinues)
 
 TEST(BootProgressApplication, HandleHostPowerStateRunning_EnablesPolling)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -573,9 +670,13 @@ TEST(BootProgressApplication, HandleHostPowerStateRunning_EnablesPolling)
 TEST(BootProgressApplication,
      HandleHostPowerStateOff_CallsUpdatePollStatusFalse)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -594,9 +695,13 @@ TEST(BootProgressApplication,
 TEST(BootProgressApplication,
      OnBootProgressOsRunning_WhenBootComplete_CallsUpdatePollIntervalIncreased)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -613,9 +718,13 @@ TEST(BootProgressApplication,
 
 TEST(BootProgressApplication, HandleHostPowerStateOff_CallsInitIndicesAndReset)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -630,9 +739,13 @@ TEST(BootProgressApplication, HandleHostPowerStateOff_CallsInitIndicesAndReset)
 
 TEST(BootProgressApplication, HandleBootComplete_CallsUpdatePollIntervalLong)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -649,9 +762,13 @@ TEST(BootProgressApplication, HandleBootComplete_CallsUpdatePollIntervalLong)
 
 TEST(BootProgressApplication, HandleOSStateChange_UpdatesPollInterval)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -667,9 +784,14 @@ TEST(BootProgressApplication, HandleOSStateChange_UpdatesPollInterval)
 
 TEST(BootProgressApplication, Initialize_WithGetPropertyOverride_SetsState)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -692,9 +814,14 @@ TEST(BootProgressApplication, Initialize_WithGetPropertyOverride_SetsState)
 TEST(BootProgressApplication,
      Initialize_GetPropertyHostStateThrows_DefaultsRunning)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -716,9 +843,14 @@ TEST(BootProgressApplication,
 
 TEST(BootProgressApplication, MonitorLoop_ProcessesFakeSignal)
 {
-    auto ctx = std::make_unique<sdbusplus::async::context>();
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    auto ctx = std::make_unique<sdbusplus::async::context>(
+        sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *ctx, std::string(snoopDbus), std::string(snoopObject));
+        *ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *ctx, publisher, std::chrono::milliseconds(100));
     Configuration config{};
@@ -749,9 +881,13 @@ TEST(BootProgressApplication, MonitorLoop_ProcessesFakeSignal)
 
 TEST(BootProgressApplication, ConstructThenStopRun)
 {
-    sdbusplus::async::context ctx;
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     auto publisher = std::make_shared<BootProgressPublisher>(
-        ctx, std::string(snoopDbus), std::string(snoopObject));
+        ctx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         ctx, publisher, std::chrono::milliseconds(100));
 
@@ -760,7 +896,7 @@ TEST(BootProgressApplication, ConstructThenStopRun)
     config.transportInterface = TransportInterface::I2C;
 
     Application application(ctx, config, mgr,
-                            makeDefaultDbusPropertyAccess(ctx));
+                            std::make_shared<DbusPropertyAccess>(ctx));
     ctx.request_stop();
     ctx.run();
 }
@@ -780,7 +916,8 @@ TEST(BootProgressApplication, InitializeWithStateHostServerCompletes)
 
     auto clientCtx = std::make_unique<sdbusplus::async::context>();
     auto publisher = std::make_shared<BootProgressPublisher>(
-        *clientCtx, std::string(snoopDbus), std::string(snoopObject));
+        *clientCtx, std::string(snoopDbus), std::string(snoopObject),
+        std::make_shared<NullPropertyAccess>());
     auto mgr = std::make_shared<BootProgressManager>(
         *clientCtx, publisher, std::chrono::milliseconds(100));
 
@@ -789,7 +926,8 @@ TEST(BootProgressApplication, InitializeWithStateHostServerCompletes)
     config.transportInterface = TransportInterface::I2C;
 
     auto application = std::make_shared<Application>(
-        *clientCtx, config, mgr, makeDefaultDbusPropertyAccess(*clientCtx));
+        *clientCtx, config, mgr,
+        std::make_shared<DbusPropertyAccess>(*clientCtx));
 
     auto fn = [ctx = clientCtx.get(),
                application]() -> sdbusplus::async::task<void> {

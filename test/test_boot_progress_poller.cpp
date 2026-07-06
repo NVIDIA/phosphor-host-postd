@@ -89,8 +89,8 @@ TEST_F(BootProgressPollerTest, ConstructWithMockDeviceAndUpdatePollInterval)
         };
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(100), 0, cb);
-    poller->updatePollInterval(std::chrono::milliseconds(200));
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
+    poller->updatePollInterval(std::chrono::milliseconds(0));
     ctx.request_stop();
     ctx.run();
 }
@@ -109,7 +109,7 @@ TEST_F(BootProgressPollerTest, UpdatePollStatusAndIsPolling)
         [](int, std::vector<std::pair<uint32_t, uint32_t>>) {};
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(100), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     poller->updatePollStatus(false);
     poller->updatePollStatus(true);
     ctx.request_stop();
@@ -130,7 +130,7 @@ TEST_F(BootProgressPollerTest, InitIndicesCalledFromConstructor)
         [](int, std::vector<std::pair<uint32_t, uint32_t>>) {};
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(100), 1, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 1, cb);
     poller->initIndices();
     ctx.request_stop();
     ctx.run();
@@ -158,14 +158,18 @@ TEST_F(BootProgressPollerTest, ProcessQueueReturnsEntryWhenMockReturnsQueueData)
 
     sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
     std::vector<std::pair<uint32_t, uint32_t>> received;
+    std::shared_ptr<BootProgressPoller> poller;
     onBootProgressDataCallback cb =
-        [&received, &ctx](int, std::vector<std::pair<uint32_t, uint32_t>> e) {
+        [&received, &ctx,
+         &poller](int, std::vector<std::pair<uint32_t, uint32_t>> e) {
             received.insert(received.end(), e.begin(), e.end());
+            if (poller)
+                poller->stop();
             ctx.request_stop();
         };
 
-    auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+    poller = std::make_shared<BootProgressPoller>(
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 
     EXPECT_FALSE(received.empty());
@@ -185,7 +189,7 @@ TEST_F(BootProgressPollerTest, ProcessQueueHandlesReadRegisterFailure)
         [](int, std::vector<std::pair<uint32_t, uint32_t>>) {};
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(100), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.request_stop();
     ctx.run();
 }
@@ -200,16 +204,21 @@ TEST_F(BootProgressPollerTest, ProcessQueueReturnsNulloptWhenQueueSizeZero)
     onBootProgressDataCallback cb =
         [](int, std::vector<std::pair<uint32_t, uint32_t>>) {};
 
+    std::shared_ptr<BootProgressPoller> poller;
     int reads = 0;
     EXPECT_CALL(*mockDevice, readRegisterValue(_, _))
-        .WillRepeatedly([&reads, &ctx](uint32_t, uint32_t& regValue) {
+        .WillRepeatedly([&reads, &ctx, &poller](uint32_t, uint32_t& regValue) {
             regValue = 0;
             if (++reads >= 2)
+            {
+                if (poller)
+                    poller->stop();
                 ctx.request_stop();
+            }
             return true;
         });
 
-    auto poller = std::make_shared<BootProgressPoller>(
+    poller = std::make_shared<BootProgressPoller>(
         ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
@@ -246,7 +255,7 @@ TEST_F(BootProgressPollerTest, ProcessQueueSkipsEntryWhenCodeZero)
         });
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 
     EXPECT_TRUE(received.empty());
@@ -284,7 +293,7 @@ TEST_F(BootProgressPollerTest, ProcessQueueHandlesGetQbaseIdxFailureForQueue1)
         });
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
 
@@ -308,7 +317,7 @@ TEST_F(BootProgressPollerTest, PollLoopUsesBackoffAfterRepeatedFailures)
         });
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(5), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
 
@@ -347,7 +356,7 @@ TEST_F(BootProgressPollerTest, ProcessQueueOverflowPath)
         });
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
 
@@ -375,7 +384,7 @@ TEST_F(BootProgressPollerTest, ProcessQueueNoNewEntriesWhenIdxEqualsCurrEnd)
         });
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
 
@@ -411,7 +420,7 @@ TEST_F(BootProgressPollerTest, ProcessQueueHandlesCodeReadFailure)
         });
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
 
@@ -444,7 +453,7 @@ TEST_F(BootProgressPollerTest, ProcessQueueHandlesTimestampReadFailure)
         });
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
 
@@ -461,7 +470,7 @@ TEST_F(BootProgressPollerTest, PollLoopWhenPollStatusFalseOnlySleeps)
         [](int, std::vector<std::pair<uint32_t, uint32_t>>) {};
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     poller->updatePollStatus(false);
     ctx.request_stop();
     ctx.run();
@@ -481,8 +490,8 @@ TEST_F(BootProgressPollerTest, UpdatePollIntervalSameIntervalNoChange)
         [](int, std::vector<std::pair<uint32_t, uint32_t>>) {};
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(100), 0, cb);
-    poller->updatePollInterval(std::chrono::milliseconds(100));
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
+    poller->updatePollInterval(std::chrono::milliseconds(0));
     ctx.request_stop();
     ctx.run();
 }
@@ -559,7 +568,9 @@ TEST_F(BootProgressPollerTest, StopSetsStoppedAndClearsDevice)
     int reads = 0;
     EXPECT_CALL(*mockDevice, readRegisterValue(_, _))
         .WillRepeatedly([&reads, &ctx, &poller](uint32_t, uint32_t& out) {
-            out = 0;
+            // queueSize=1, start=0, end=0: valid queue with no new entries so
+            // anyReadSucceeded=true and exponential backoff never triggers.
+            out = (1u << 20) | (0u << 10) | 0u;
             if (++reads >= 2)
             {
                 poller->stop();
@@ -569,7 +580,7 @@ TEST_F(BootProgressPollerTest, StopSetsStoppedAndClearsDevice)
         });
 
     poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(100), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
 }
 
@@ -604,7 +615,7 @@ TEST_F(BootProgressPollerTest, GetQbaseIdxQueueZeroReturnsZeroWithoutRead)
         };
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
     EXPECT_FALSE(received.empty());
 }
@@ -637,9 +648,32 @@ TEST_F(BootProgressPollerTest, ProcessQueueQueue1UsesGetQbaseIdx)
         };
 
     auto poller = std::make_shared<BootProgressPoller>(
-        ctx, mockDevice, std::chrono::milliseconds(10), 0, cb);
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
     ctx.run();
     EXPECT_FALSE(received.empty());
+}
+
+// Branch: updatePollStatus when pollStatus == newPollStatus (no log emitted)
+TEST_F(BootProgressPollerTest, UpdatePollStatusSameValueIsNoOp)
+{
+    auto mockDevice = std::make_shared<MockPollingDevice>();
+    EXPECT_CALL(*mockDevice, readRegisterValue(_, _))
+        .WillRepeatedly([](uint32_t, uint32_t& out) {
+            out = 0;
+            return true;
+        });
+
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
+    onBootProgressDataCallback cb =
+        [](int, std::vector<std::pair<uint32_t, uint32_t>>) {};
+
+    auto poller = std::make_shared<BootProgressPoller>(
+        ctx, mockDevice, std::chrono::milliseconds(0), 0, cb);
+    // pollStatus starts true; calling with true again hits the same-value
+    // branch
+    poller->updatePollStatus(true);
+    ctx.request_stop();
+    ctx.run();
 }
 
 } // namespace

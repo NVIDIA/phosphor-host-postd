@@ -30,23 +30,99 @@
 
 #include <phosphor-logging/lg2.hpp>
 
-int main(int argc, char* argv[])
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
+#include <exception>
+#include <optional>
+#include <string>
+#include <vector>
+
+using namespace std::chrono_literals;
+
+static constexpr auto cpuIface = "xyz.openbmc_project.Inventory.Item.Cpu";
+
+static sdbusplus::async::task<size_t> queryCpuCount(
+    sdbusplus::async::context& ctx)
 {
-    sdbusplus::async::context ctx;
-    Configuration config;
-    if (!ConfigReader::readConfig(argc, argv, config))
+    try
     {
-        lg2::error("Failed to read configuration");
-        return EXIT_FAILURE;
+        auto paths = co_await getSubTreePaths(
+            ctx, "/xyz/openbmc_project/inventory", 0, {cpuIface});
+        co_return countUniqueLeafPaths(paths);
+    }
+    catch (const std::exception& e)
+    {
+        lg2::debug("CPU detection: ObjectMapper query failed: {ERROR}", "ERROR",
+                   e.what());
+        co_return 0;
+    }
+}
+
+static sdbusplus::async::task<size_t> detectCpuCount(
+    sdbusplus::async::context& ctx,
+    std::chrono::seconds timeout = std::chrono::seconds(120))
+{
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+
+    size_t count = co_await queryCpuCount(ctx);
+    if (count > 0)
+    {
+        co_await sdbusplus::async::sleep_for(ctx, 3s);
+        count = std::max(count, co_await queryCpuCount(ctx));
+        lg2::info("CPU detection: settled at {COUNT} CPU(s)", "COUNT", count);
+        co_return count;
     }
 
-    std::shared_ptr<CakBootProgressPublisher> cakPublisher = nullptr;
-    if (config.cakCpuCount)
+    lg2::debug("CPU detection: Entity Manager not ready, polling every 3s "
+               "for up to {TIMEOUT}s",
+               "TIMEOUT", timeout.count());
+
+    while (std::chrono::steady_clock::now() < deadline)
     {
-        cakPublisher =
-            std::make_shared<CakBootProgressPublisher>(ctx, config.cakCpuCount);
+        co_await sdbusplus::async::sleep_for(ctx, 3s);
+
+        count = co_await queryCpuCount(ctx);
+        if (count > 0)
+        {
+            co_await sdbusplus::async::sleep_for(ctx, 3s);
+            count = std::max(count, co_await queryCpuCount(ctx));
+            lg2::info("CPU detection: settled at {COUNT} CPU(s)", "COUNT",
+                      count);
+            co_return count;
+        }
     }
 
+    lg2::warning("CPU detection timed out waiting for Entity Manager; "
+                 "defaulting to 2 CPUs");
+    co_return 2;
+}
+
+static sdbusplus::async::task<void> runSnoopd(
+    sdbusplus::async::context& ctx, const Configuration& config,
+    std::optional<Application>& application,
+    std::shared_ptr<PollingDeviceEnumerator>& deviceEnumerator,
+    [[maybe_unused]] std::shared_ptr<L1ResetHandler>& l1ResetHandler)
+{
+    size_t cpuCount = 0;
+    if (config.cakEnabled)
+    {
+        if (config.cakCpuCount > 0)
+        {
+            cpuCount = config.cakCpuCount;
+            lg2::info("CAK monitoring: using static {COUNT} CPU(s)", "COUNT",
+                      cpuCount);
+        }
+        else
+        {
+            cpuCount = co_await detectCpuCount(ctx);
+            lg2::info("CAK monitoring: detected {COUNT} CPU(s)", "COUNT",
+                      cpuCount);
+        }
+    }
+
+    auto cakPublisher =
+        std::make_shared<CakBootProgressPublisher>(ctx, cpuCount);
     auto dbusAccess = std::make_shared<DbusPropertyAccess>(ctx);
     auto publisher = std::make_shared<BootProgressPublisher>(
         ctx, std::string(snoopDbus), std::string(snoopObject), dbusAccess,
@@ -54,7 +130,6 @@ int main(int argc, char* argv[])
     auto bootProgressManager = std::make_shared<BootProgressManager>(
         ctx, publisher, config.pollInterval);
 
-    std::shared_ptr<PollingDeviceEnumerator> deviceEnumerator = nullptr;
     if (config.transportInterface == TransportInterface::I2C)
     {
         initializeI2CDevices(bootProgressManager, config.i2cInterfaceConfigMap);
@@ -65,15 +140,6 @@ int main(int argc, char* argv[])
         deviceEnumerator = std::make_shared<USBDeviceEnumerator>(
             ctx, bootProgressManager, config.usbVendorId, config.usbProductId,
             config.usbRescanInterval);
-        if (!deviceEnumerator)
-        {
-            lg2::error("Failed to create USB device enumerator");
-            return EXIT_FAILURE;
-        }
-    }
-
-    if (deviceEnumerator)
-    {
         ctx.spawn(deviceEnumerator->run());
     }
 
@@ -83,15 +149,31 @@ int main(int argc, char* argv[])
     // conflict with phosphor-host-state-manager's ownership of
     // xyz.openbmc_project.State.Host.
     lg2::info("L1Reset: registering com.nvidia.L1Reset interface");
-    auto l1ResetHandler = std::make_shared<L1ResetHandler>(
+    l1ResetHandler = std::make_shared<L1ResetHandler>(
         ctx, "/xyz/openbmc_project/state/host0", bootProgressManager);
     lg2::info("L1Reset: D-Bus interface registered");
 #endif
 
-    Application application(ctx, config, bootProgressManager, dbusAccess);
+    application.emplace(ctx, config, bootProgressManager, dbusAccess);
+    co_await application->initialize();
+}
 
-    ctx.spawn(application.initialize());
+int main(int argc, char* argv[])
+{
+    Configuration config;
+    if (!ConfigReader::readConfig(argc, argv, config))
+    {
+        lg2::error("Failed to read configuration");
+        return EXIT_FAILURE;
+    }
 
+    sdbusplus::async::context ctx;
+    std::optional<Application> application;
+    std::shared_ptr<PollingDeviceEnumerator> deviceEnumerator;
+    std::shared_ptr<L1ResetHandler> l1ResetHandler;
+
+    ctx.spawn(
+        runSnoopd(ctx, config, application, deviceEnumerator, l1ResetHandler));
     ctx.run();
 
     return EXIT_SUCCESS;

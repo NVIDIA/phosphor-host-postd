@@ -57,7 +57,6 @@ class CakBootProgressPublisher
     std::unique_ptr<BootProgressObject> bootProgressObj;
     std::vector<CakStage> cakCpuStages;
     std::string lastPublishedStage;
-    bool cakEnterSeen = false;
 
     void updateCakState(uint32_t progressCode);
     void publishCakStageIfChanged(const std::string& stage);

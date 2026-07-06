@@ -51,6 +51,10 @@ inline sdbusplus::async::task<void> setDbusProperty(
     co_await proxy.set_property(ctx, property, value);
 }
 
+sdbusplus::async::task<std::vector<std::string>> getSubTreePaths(
+    sdbusplus::async::context& ctx, const std::string& subtree, int32_t depth,
+    const std::vector<std::string>& interfaces);
+
 struct IDbusPropertyAccess
 {
     virtual sdbusplus::async::task<std::string> getProperty(
@@ -84,3 +88,8 @@ struct DbusPropertyAccess : IDbusPropertyAccess
         const char* property, uint64_t value) override;
     sdbusplus::async::context& ctx;
 };
+
+/** Return the number of unique leaf path components in @p paths.
+ *  Used to deduplicate CPU inventory paths that Entity Manager may publish
+ *  under multiple subtrees (e.g. .../component/CPU_0 and .../cpu/CPU_0). */
+size_t countUniqueLeafPaths(const std::vector<std::string>& paths);

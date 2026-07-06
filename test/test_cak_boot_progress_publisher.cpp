@@ -192,6 +192,20 @@ TEST_F(CakTest, OnProgressCodeUnknownCodeIgnored)
     runContextUntilStop(ctx.get());
 }
 
+// Branch: updateCakState valid CPU index but unrecognised event code → else
+TEST(CakBootProgressPublisher, OnProgressCodeValidCpuUnknownEventIgnored)
+{
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
+    setupBusMock(bus_mock);
+
+    auto ctx = std::make_unique<sdbusplus::async::context>();
+    CakBootProgressPublisher cak(*ctx, 1);
+    // highByte=0x70 (CPU 0, in range), eventCode=0x00AABBCC (not known)
+    cak.onProgressCode(0x70AABBCCu);
+    runContextUntilStop(ctx.get());
+}
+
 // Branch: publishCakStageIfChanged when stage == lastPublishedStage (no update)
 TEST_F(CakTest, OnProgressCodeSameStageTwice_SecondCallSkipsPublish)
 {

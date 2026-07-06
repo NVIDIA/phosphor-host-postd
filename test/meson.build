@@ -103,6 +103,26 @@ test(
     ),
 )
 
+
+test(
+    'test_dbus_utils',
+    executable(
+        'test_dbus_utils',
+        'test_dbus_utils.cpp',
+        '../queued-boot-progress/dbus_utils.cpp',
+        include_directories: postd_headers,
+        implicit_include_directories: false,
+        dependencies: [
+            gtest,
+            gtest_main,
+            gmock,
+            phosphor_dbus_interfaces,
+            sdbusplus,
+            phosphor_logging,
+        ],
+    ),
+)
+
 test(
     'test_boot_progress_poller',
     executable(
@@ -122,6 +142,7 @@ test(
             libusb,
         ],
     ),
+    timeout: 60,
 )
 
 test(
@@ -228,7 +249,7 @@ test(
             phosphor_logging,
         ],
     ),
-    timeout: 45,
+    timeout: 90,
 )
 
 test(

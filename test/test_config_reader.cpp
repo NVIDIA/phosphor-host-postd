@@ -191,57 +191,94 @@ TEST(ConfigReader, InvalidI2CAddressNonNumeric)
     EXPECT_FALSE(ok);
 }
 
-TEST(ConfigReader, InvalidCakCpuCountTooLarge)
+TEST(ConfigReader, CakDisabledByDefault)
 {
     Configuration config{};
-    std::vector<std::string> args = {"prog", "-p", "50", "-i",
-                                     "usb",  "-c", "3"};
-    auto [argc, argvStorage] = makeArgv(args);
-    resetGetopt();
-
-    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
-    EXPECT_FALSE(ok);
-}
-
-TEST(ConfigReader, InvalidCakCpuCountNonNumeric)
-{
-    Configuration config{};
-    std::vector<std::string> args = {"prog", "-p", "50", "-i",
-                                     "usb",  "-c", "two"};
-    auto [argc, argvStorage] = makeArgv(args);
-    resetGetopt();
-
-    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
-    EXPECT_FALSE(ok);
-}
-
-TEST(ConfigReader, ValidCakCpuCountZeroAndTwo)
-{
-    Configuration config{};
-    std::vector<std::string> args = {"prog", "-p", "50", "-i",
-                                     "usb",  "-c", "0"};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i", "usb"};
     auto [argc, argvStorage] = makeArgv(args);
     resetGetopt();
 
     bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
     ASSERT_TRUE(ok);
+    EXPECT_FALSE(config.cakEnabled);
     EXPECT_EQ(config.cakCpuCount, 0u);
 }
 
-TEST(ConfigReader, ValidCakCpuCountOne)
+// --cak sets cakEnabled; cakCpuCount stays 0 (runtime detection)
+TEST(ConfigReader, CakEnabledRuntimeDetection)
 {
     Configuration config{};
-    std::vector<std::string> args = {"prog", "-p", "50", "-i",
-                                     "usb",  "-c", "1"};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i", "usb", "--cak"};
     auto [argc, argvStorage] = makeArgv(args);
     resetGetopt();
 
     bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
     ASSERT_TRUE(ok);
+    EXPECT_TRUE(config.cakEnabled);
+    EXPECT_EQ(config.cakCpuCount, 0u);
+}
+
+// -k is the short form of --cak used by meson.build
+TEST(ConfigReader, CakEnabledRuntimeDetectionShortForm)
+{
+    Configuration config{};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i", "usb", "-k"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    ASSERT_TRUE(ok);
+    EXPECT_TRUE(config.cakEnabled);
+    EXPECT_EQ(config.cakCpuCount, 0u);
+}
+
+// --cak --cak-cpu-count 2: static count, no runtime detection
+TEST(ConfigReader, CakEnabledWithStaticCpuCount)
+{
+    Configuration config{};
+    std::vector<std::string> args = {
+        "prog", "-p", "50", "-i", "usb", "--cak", "--cak-cpu-count", "2"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    ASSERT_TRUE(ok);
+    EXPECT_TRUE(config.cakEnabled);
+    EXPECT_EQ(config.cakCpuCount, 2u);
+}
+
+// -k -c 2: short forms as passed by meson.build
+TEST(ConfigReader, CakEnabledWithStaticCpuCountShortForms)
+{
+    Configuration config{};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i",
+                                     "usb",  "-k", "-c", "2"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    ASSERT_TRUE(ok);
+    EXPECT_TRUE(config.cakEnabled);
+    EXPECT_EQ(config.cakCpuCount, 2u);
+}
+
+// -c 1: single CPU static count
+TEST(ConfigReader, CakEnabledWithStaticCpuCountOne)
+{
+    Configuration config{};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i",
+                                     "usb",  "-k", "-c", "1"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    ASSERT_TRUE(ok);
+    EXPECT_TRUE(config.cakEnabled);
     EXPECT_EQ(config.cakCpuCount, 1u);
 }
 
-TEST(ConfigReader, ValidCakCpuCountTwo)
+// --cak-cpu-count without --cak: sets cakCpuCount but not cakEnabled
+TEST(ConfigReader, CakCpuCountWithoutCakFlag)
 {
     Configuration config{};
     std::vector<std::string> args = {"prog", "-p", "50", "-i",
@@ -251,7 +288,33 @@ TEST(ConfigReader, ValidCakCpuCountTwo)
 
     bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
     ASSERT_TRUE(ok);
+    EXPECT_FALSE(config.cakEnabled);
     EXPECT_EQ(config.cakCpuCount, 2u);
+}
+
+// count > 2 is rejected
+TEST(ConfigReader, CakCpuCountAboveMaxFails)
+{
+    Configuration config{};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i",
+                                     "usb",  "-k", "-c", "3"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    EXPECT_FALSE(ok);
+}
+
+TEST(ConfigReader, CakCpuCountNonNumericFails)
+{
+    Configuration config{};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i",
+                                     "usb",  "-k", "-c", "abc"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    EXPECT_FALSE(ok);
 }
 
 // Branch: switch(opt) default - unknown option

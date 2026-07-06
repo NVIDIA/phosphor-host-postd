@@ -19,6 +19,8 @@
 
 #include <sdbusplus/bus/match.hpp>
 
+#include <unordered_set>
+
 namespace rulesInterface = sdbusplus::bus::match::rules;
 
 sdbusplus::async::task<std::string> getDbusProperty(
@@ -41,6 +43,29 @@ sdbusplus::async::task<PropertiesChangedTuple> waitForDbusPropertiesChanged(
         .next<std::tuple_element_t<0, PropertiesChangedTuple>,
               std::tuple_element_t<1, PropertiesChangedTuple>,
               std::tuple_element_t<2, PropertiesChangedTuple>>();
+}
+
+sdbusplus::async::task<std::vector<std::string>> getSubTreePaths(
+    sdbusplus::async::context& ctx, const std::string& subtree, int32_t depth,
+    const std::vector<std::string>& interfaces)
+{
+    co_return co_await sdbusplus::async::proxy()
+        .service("xyz.openbmc_project.ObjectMapper")
+        .path("/xyz/openbmc_project/object_mapper")
+        .interface("xyz.openbmc_project.ObjectMapper")
+        .call<std::vector<std::string>>(ctx, "GetSubTreePaths", subtree, depth,
+                                        interfaces);
+}
+
+size_t countUniqueLeafPaths(const std::vector<std::string>& paths)
+{
+    std::unordered_set<std::string> unique;
+    for (const auto& p : paths)
+    {
+        auto pos = p.rfind('/');
+        unique.insert(pos != std::string::npos ? p.substr(pos + 1) : p);
+    }
+    return unique.size();
 }
 
 sdbusplus::async::task<std::string> DbusPropertyAccess::getProperty(

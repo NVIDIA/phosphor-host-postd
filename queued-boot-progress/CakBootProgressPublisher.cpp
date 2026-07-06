@@ -22,13 +22,12 @@
 static constexpr auto cakBootProgressObject =
     "/xyz/openbmc_project/state/boot/cak0";
 
-// CAK-specific progress codes
-static constexpr uint32_t cpu0BootStart = 0x70C0C001;
-static constexpr uint32_t cpu1BootStart = 0x71C0C001;
-static constexpr uint32_t cpu0CakEnter = 0x70C1C08A;
-static constexpr uint32_t cpu1CakEnter = 0x71C1C08A;
-static constexpr uint32_t cpu0CakExit = 0x70C1C089;
-static constexpr uint32_t cpu1CakExit = 0x71C1C089;
+// CAK-specific progress codes — CPU index encoded in high byte as (0x70 +
+// cpuIndex); lower 3 bytes identify the event type.
+static constexpr uint32_t cpuIndexBase = 0x70u;
+static constexpr uint32_t cpuBootStart = 0x00C0C001u;
+static constexpr uint32_t cpuCakEnter = 0x00C1C08Au;
+static constexpr uint32_t cpuCakExit = 0x00C1C089u;
 
 CakBootProgressPublisher::CakBootProgressPublisher(
     sdbusplus::async::context& context, size_t cakCpuCount) :
@@ -43,7 +42,6 @@ CakBootProgressPublisher::CakBootProgressPublisher(
         BootProgressObject::action::emit_object_added);
     bootProgressObj->bootProgress(BootProgressInterface::ProgressStages::OEM);
     cakCpuStages.assign(cakCpuCount, CakStage::EarlyBoot);
-    cakEnterSeen = false;
     publishCakStageIfChanged("EarlyBoot");
 }
 
@@ -65,7 +63,6 @@ void CakBootProgressPublisher::resetCachedState()
     lg2::debug("Reset cached CAK BootProgress state");
     cakCpuStages.assign(cakCpuCount, CakStage::EarlyBoot);
     lastPublishedStage.clear();
-    cakEnterSeen = false;
     publishCakStageIfChanged("EarlyBoot");
 }
 
@@ -89,52 +86,36 @@ void CakBootProgressPublisher::publishCakStageFromStates()
 
 void CakBootProgressPublisher::updateCakState(uint32_t progressCode)
 {
-    if (progressCode == cpu0BootStart || progressCode == cpu1BootStart)
+    const uint32_t highByte = progressCode >> 24;
+    if (highByte < cpuIndexBase)
     {
-        const size_t cpuIndex = (progressCode == cpu0BootStart) ? 0U : 1U;
-        if (cpuIndex < cakCpuStages.size())
-        {
-            cakCpuStages[cpuIndex] = CakStage::EarlyBoot;
-        }
-        publishCakStageFromStates();
         return;
     }
 
-    size_t cpuIndex;
-    CakStage newStage;
-    if (progressCode == cpu0CakEnter)
+    const size_t cpuIndex = highByte - cpuIndexBase;
+    if (cpuIndex >= cakCpuStages.size())
     {
-        cpuIndex = 0;
-        newStage = CakStage::Waiting;
-        cakEnterSeen = true;
+        return;
     }
-    else if (progressCode == cpu0CakExit)
+
+    const uint32_t eventCode = progressCode & 0x00FFFFFFu;
+    if (eventCode == cpuBootStart)
     {
-        cpuIndex = 0;
-        newStage = CakStage::Complete;
+        cakCpuStages[cpuIndex] = CakStage::EarlyBoot;
     }
-    else if (progressCode == cpu1CakEnter)
+    else if (eventCode == cpuCakEnter)
     {
-        cpuIndex = 1;
-        newStage = CakStage::Waiting;
-        cakEnterSeen = true;
+        cakCpuStages[cpuIndex] = CakStage::Waiting;
     }
-    else if (progressCode == cpu1CakExit)
+    else if (eventCode == cpuCakExit)
     {
-        cpuIndex = 1;
-        newStage = CakStage::Complete;
+        cakCpuStages[cpuIndex] = CakStage::Complete;
     }
     else
     {
         return;
     }
 
-    if (cpuIndex >= cakCpuStages.size())
-    {
-        return;
-    }
-
-    cakCpuStages[cpuIndex] = newStage;
     publishCakStageFromStates();
 }
 

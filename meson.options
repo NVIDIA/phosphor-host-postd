@@ -92,6 +92,12 @@ option(
     description: 'Number of CPUs emitting CAK post codes',
 )
 option(
+    'cak-boot-progress',
+    type: 'feature',
+    value: 'disabled',
+    description: 'Enable CAK boot-progress monitoring. CPU count is detected at runtime via Entity Manager inventory.',
+)
+option(
     'l1reset',
     type: 'feature',
     value: 'disabled',

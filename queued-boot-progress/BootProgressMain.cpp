@@ -20,13 +20,11 @@
 #include "CakBootProgressPublisher.hpp"
 #include "ConfigReader.hpp"
 #include "I2CPollingDevice.hpp"
+#include "L1ResetHandler.hpp"
 #include "PollingDevice.hpp"
 #include "USBPollingDevice.hpp"
 #include "dbus_utils.hpp"
 #include "lpcsnoop/snoop.hpp"
-#ifdef ENABLE_L1RESET
-#include "L1ResetHandler.hpp"
-#endif
 
 #include <phosphor-logging/lg2.hpp>
 
@@ -143,16 +141,17 @@ static sdbusplus::async::task<void> runSnoopd(
         ctx.spawn(deviceEnumerator->run());
     }
 
-#ifdef ENABLE_L1RESET
-    // Register the com.nvidia.L1Reset D-Bus interface under snoopd's own
-    // service name (xyz.openbmc_project.State.Boot.Raw) so we do not
-    // conflict with phosphor-host-state-manager's ownership of
-    // xyz.openbmc_project.State.Host.
-    lg2::info("L1Reset: registering com.nvidia.L1Reset interface");
-    l1ResetHandler = std::make_shared<L1ResetHandler>(
-        ctx, "/xyz/openbmc_project/state/host0", bootProgressManager);
-    lg2::info("L1Reset: D-Bus interface registered");
-#endif
+    if (config.l1ResetEnabled)
+    {
+        // Register the com.nvidia.L1Reset D-Bus interface under snoopd's own
+        // service name (xyz.openbmc_project.State.Boot.Raw) so we do not
+        // conflict with phosphor-host-state-manager's ownership of
+        // xyz.openbmc_project.State.Host.
+        lg2::info("L1Reset: registering com.nvidia.L1Reset interface");
+        l1ResetHandler = std::make_shared<L1ResetHandler>(
+            ctx, "/xyz/openbmc_project/state/host0", bootProgressManager);
+        lg2::info("L1Reset: D-Bus interface registered");
+    }
 
     application.emplace(ctx, config, bootProgressManager, dbusAccess);
     co_await application->initialize();

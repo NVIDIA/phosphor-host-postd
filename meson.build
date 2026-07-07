@@ -91,9 +91,9 @@ elif get_option('queued-boot-progress').allowed()
         snoopd_args += ' -k'
     endif
 
+    snoopd_src += 'queued-boot-progress/L1ResetHandler.cpp'
     if get_option('l1reset').allowed()
-        snoopd_src += 'queued-boot-progress/L1ResetHandler.cpp'
-        add_project_arguments('-DENABLE_L1RESET', language: 'cpp')
+        snoopd_args += ' --l1reset'
     endif
 endif
 

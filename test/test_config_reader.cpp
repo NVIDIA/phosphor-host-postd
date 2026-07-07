@@ -191,7 +191,7 @@ TEST(ConfigReader, InvalidI2CAddressNonNumeric)
     EXPECT_FALSE(ok);
 }
 
-TEST(ConfigReader, CakDisabledByDefault)
+TEST(ConfigReader, CakAndL1ResetDisabledByDefault)
 {
     Configuration config{};
     std::vector<std::string> args = {"prog", "-p", "50", "-i", "usb"};
@@ -202,6 +202,7 @@ TEST(ConfigReader, CakDisabledByDefault)
     ASSERT_TRUE(ok);
     EXPECT_FALSE(config.cakEnabled);
     EXPECT_EQ(config.cakCpuCount, 0u);
+    EXPECT_FALSE(config.l1ResetEnabled);
 }
 
 // --cak sets cakEnabled; cakCpuCount stays 0 (runtime detection)
@@ -406,6 +407,38 @@ TEST(ConfigReader, UnsupportedTransportFailsValidation)
 
     bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
     EXPECT_FALSE(ok);
+}
+
+// -l is the short form used by meson.build; -l -k -c 2 is the full
+// platform combination for vr-nvl-hmc
+TEST(ConfigReader, L1ResetAndCakShortFormsCombined)
+{
+    Configuration config{};
+    std::vector<std::string> args = {"prog", "-p", "50", "-i", "usb",
+                                     "-l",   "-k", "-c", "2"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    ASSERT_TRUE(ok);
+    EXPECT_TRUE(config.l1ResetEnabled);
+    EXPECT_TRUE(config.cakEnabled);
+    EXPECT_EQ(config.cakCpuCount, 2u);
+}
+
+// --l1reset long form sets l1ResetEnabled independently of cak
+TEST(ConfigReader, L1ResetLongFormWithoutCak)
+{
+    Configuration config{};
+    std::vector<std::string> args = {"prog", "-p",  "50",
+                                     "-i",   "usb", "--l1reset"};
+    auto [argc, argvStorage] = makeArgv(args);
+    resetGetopt();
+
+    bool ok = ConfigReader::readConfig(argc, argvStorage.data(), config);
+    ASSERT_TRUE(ok);
+    EXPECT_TRUE(config.l1ResetEnabled);
+    EXPECT_FALSE(config.cakEnabled);
 }
 
 TEST(PollingDeviceTypes, TransportInterfaceValues)

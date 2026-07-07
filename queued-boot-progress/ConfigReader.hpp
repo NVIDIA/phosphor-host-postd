@@ -40,6 +40,7 @@ struct Configuration
     std::chrono::seconds usbRescanInterval = std::chrono::seconds(100);
     size_t cakCpuCount = 0;
     bool cakEnabled = false;
+    bool l1ResetEnabled = false;
 };
 
 class ConfigReader
@@ -56,10 +57,11 @@ class ConfigReader
             {"i2c-address", required_argument, nullptr, 'a'},
             {"cak-cpu-count", required_argument, nullptr, 'c'},
             {"cak", no_argument, nullptr, 'k'},
+            {"l1reset", no_argument, nullptr, 'l'},
             {nullptr, 0, nullptr, 0}};
         std::vector<int> busList;
         std::vector<int> addrList;
-        while ((opt = getopt_long(argc, argv, "p:i:b:a:c:k", long_options,
+        while ((opt = getopt_long(argc, argv, "p:i:b:a:c:kl", long_options,
                                   nullptr)) != -1)
         {
             switch (opt)
@@ -156,6 +158,9 @@ class ConfigReader
                     break;
                 case 'k':
                     config.cakEnabled = true;
+                    break;
+                case 'l':
+                    config.l1ResetEnabled = true;
                     break;
                 default:
                     lg2::error("Invalid option: {OPTION}", "OPTION", opt);

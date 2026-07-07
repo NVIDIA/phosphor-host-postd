@@ -51,11 +51,8 @@ static void setupBusMock(NiceMock<sdbusplus::SdBusMock>& bus_mock)
  */
 static void runContextUntilStop(sdbusplus::async::context* ctx)
 {
-    auto fn = [ctx]() -> sdbusplus::async::task<void> {
-        ctx->request_stop();
-        co_return;
-    };
-    ctx->spawn(fn());
+    ctx->spawn(stdexec::just() |
+               stdexec::then([ctx]() { ctx->request_stop(); }));
     ctx->run();
 }
 
@@ -193,13 +190,8 @@ TEST_F(CakTest, OnProgressCodeUnknownCodeIgnored)
 }
 
 // Branch: updateCakState valid CPU index but unrecognised event code → else
-TEST(CakBootProgressPublisher, OnProgressCodeValidCpuUnknownEventIgnored)
+TEST_F(CakTest, OnProgressCodeValidCpuUnknownEventIgnored)
 {
-    NiceMock<sdbusplus::SdBusMock> bus_mock;
-    sdbusplus::bus_t bus(sdbusplus::get_mocked_new(&bus_mock));
-    setupBusMock(bus_mock);
-
-    auto ctx = std::make_unique<sdbusplus::async::context>();
     CakBootProgressPublisher cak(*ctx, 1);
     // highByte=0x70 (CPU 0, in range), eventCode=0x00AABBCC (not known)
     cak.onProgressCode(0x70AABBCCu);

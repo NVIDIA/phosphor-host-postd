@@ -208,6 +208,10 @@ void Application::onHostPowerStateChange(std::string newValue)
         bootProgressManager->initIndices();
         bootProgressManager->resetPublisherCachedState();
     }
+    else if (currentHostPowerState == hostPowerStateTransitionToRunning)
+    {
+        bootProgressManager->resetPublisherCachedState();
+    }
     else if (currentHostPowerState == hostPowerStateRunning)
     {
         lg2::info("Host is on - enabling boot progress polling");

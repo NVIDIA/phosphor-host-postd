@@ -38,9 +38,12 @@
 #include <mutex>
 #include <optional>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -145,10 +148,16 @@ class FakeDbusPropertyAccess : public IDbusPropertyAccess
         co_return PropertiesChangedTuple{std::string{}, {}, {}};
     }
 
+    std::vector<std::string> bootProgressWrites;
+
     sdbusplus::async::task<void> setProperty(const char*, const char*,
-                                             const char*, const char*,
-                                             const std::string&) override
+                                             const char*, const char* property,
+                                             const std::string& value) override
     {
+        if (property == std::string("BootProgress"))
+        {
+            bootProgressWrites.push_back(value);
+        }
         co_return;
     }
     sdbusplus::async::task<void> setProperty(
@@ -337,6 +346,9 @@ TEST(BootProgressApplication, HostPowerStateConstants)
               "xyz.openbmc_project.State.Host.HostState.Quiesced");
     EXPECT_EQ(hostPowerStateTransition,
               "xyz.openbmc_project.State.Host.HostState.TransitioningToOff");
+    EXPECT_EQ(
+        hostPowerStateTransitionToRunning,
+        "xyz.openbmc_project.State.Host.HostState.TransitioningToRunning");
 }
 
 TEST(BootProgressApplication, DbusConstants)
@@ -429,6 +441,64 @@ TEST(BootProgressApplication, IsHostPowerStateOff_WhenTransitioning)
     EXPECT_TRUE(app.isHostPowerStateOff());
     ctx.request_stop();
     ctx.run();
+}
+
+namespace
+{
+constexpr uint32_t osRunningCode = 0x43101019u;
+constexpr uint32_t earlierStageCode = 0x42010110u;
+
+/* Drives publisher->update(OSRunning), optionally signals a host state, then
+ * publishes an earlier stage. Returns the BootProgress values written. */
+std::vector<std::string> publishAcrossHostState(
+    const std::optional<std::string>& hostState)
+{
+    PipeFdGuard pipe;
+    NiceMock<sdbusplus::SdBusMock> bus_mock;
+    EXPECT_CALL(bus_mock, sd_bus_get_fd(_)).WillRepeatedly(Return(pipe.fd[0]));
+    sdbusplus::async::context ctx(sdbusplus::get_mocked_new(&bus_mock));
+    auto fake = std::make_shared<FakeDbusPropertyAccess>(ctx);
+    auto publisher = std::make_shared<BootProgressPublisher>(
+        ctx, std::string(snoopDbus), std::string(snoopObject), fake);
+    auto mgr = std::make_shared<BootProgressManager>(
+        ctx, publisher, std::chrono::milliseconds(100));
+    Configuration config{};
+    TestableApplication app(ctx, config, mgr, fake);
+
+    auto run = [&]() -> sdbusplus::async::task<void> {
+        co_await publisher->update({{100u, osRunningCode}});
+        if (hostState)
+        {
+            app.onHostPowerStateChange(*hostState);
+        }
+        co_await publisher->update({{200u, earlierStageCode}});
+        ctx.request_stop();
+    };
+    ctx.spawn(run());
+    ctx.run();
+    return fake->bootProgressWrites;
+}
+} // namespace
+
+TEST(BootProgressApplication, TransitioningToRunningClearsOsRunningLatch)
+{
+    auto writes =
+        publishAcrossHostState(std::string(hostPowerStateTransitionToRunning));
+    ASSERT_EQ(writes.size(), 2u);
+    EXPECT_EQ(writes[1],
+              "xyz.openbmc_project.State.Boot.Progress.ProgressStages.PCIInit");
+}
+
+TEST(BootProgressApplication, OsRunningLatchHoldsWithoutHostStateChange)
+{
+    auto writes = publishAcrossHostState(std::nullopt);
+    ASSERT_EQ(writes.size(), 1u);
+}
+
+TEST(BootProgressApplication, OsRunningLatchHoldsOnRunningState)
+{
+    auto writes = publishAcrossHostState(std::string(hostPowerStateRunning));
+    ASSERT_EQ(writes.size(), 1u);
 }
 
 TEST(BootProgressApplication, IsHostPowerStateOff_WhenEmpty)
